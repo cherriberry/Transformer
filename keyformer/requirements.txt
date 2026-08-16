@@ -1,0 +1,6 @@
+transformers>=4.40
+datasets>=2.18
+evaluate>=0.4
+pyyaml>=6.0
+accelerate>=0.28
+matplotlib>=3.8

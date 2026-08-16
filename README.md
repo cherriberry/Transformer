@@ -1,52 +1,31 @@
-# 26summer BDMI — Transformer / Keyformer
+# Project overview
 
-Course deliverable focused on **Keyformer KV-cache compression** with GPT-2 Medium
-and WikiText-2. Longformer microbenchmarks in this tree are secondary / teammate scope.
+Course study of efficient Transformer variants. Each method has its own folder:
 
-## Keyformer (main deliverable)
+| Dir | Method | Owner focus |
+|---|---|---|
+| `keyformer/` | Keyformer KV-cache compression | This repo primary deliverable |
+| `longformer/` | Longformer local+global attention | Teammate perf + quality added here |
+| `linformer/` | Linformer low-rank attention | Teammate perf + quality added here |
+| `xformer/` | xFormers memory-efficient attention | Teammate perf + quality added here |
+| `memformer/` | Memformer-style memory attention | Teammate perf + quality added here |
+| `performer/` | Performer FAVOR+ attention | Teammate perf + quality added here |
+| `reformer/` | Reformer LSH attention | Teammate perf + quality added here |
 
-Research question: during autoregressive generation, can Keyformer keep language-model
-quality while reducing KV-cache memory and decode latency?
+Shared helpers: `common/wikitext_quality.py`
 
-| Item | Path |
-|---|---|
-| Report | [`KEYFORMER_REPORT.md`](KEYFORMER_REPORT.md) |
-| GPT-2 integration | `models/gpt2_keyformer.py` |
-| Algorithm policies | `models/keyformer.py` |
-| Tests | `tests/test_keyformer.py`, `tests/test_gpt2_keyformer.py` |
-| Perf / quality / plots | `benchmarks/` |
-| Config | `configs/keyformer_experiment.yaml` |
-| Results JSON | `results/synthetic/perf_final.json`, `results/wikitext2/quality_final.json` |
-| Figures | `results/figures/` |
-
-### Quick reproduce
+## Reproduce quality (WikiText-2)
 
 ```powershell
-python -m pip install -r requirements-keyformer.txt
 $env:PYTHONPATH = (Get-Location)
-python -m pytest -q tests/test_keyformer.py tests/test_gpt2_keyformer.py
-python benchmarks/keyformer_gpt2.py --mode final
-python benchmarks/keyformer_quality.py --mode quality_final
-python benchmarks/keyformer_plot.py
+.\.venv\Scripts\python.exe longformer\quality_wikitext.py
+.\.venv\Scripts\python.exe linformer\quality_wikitext.py
+.\.venv\Scripts\python.exe xformer\quality_wikitext.py
+.\.venv\Scripts\python.exe memformer\quality_wikitext.py
+.\.venv\Scripts\python.exe performer\quality_wikitext.py
+.\.venv\Scripts\python.exe reformer\quality_wikitext.py
 ```
 
-Hardware used for reported numbers: RTX 5060 Laptop 8GB, GPT-2 Medium FP16.
+Keyformer results are already under `keyformer/results/` and `keyformer/REPORT.md`.
 
-## Other attention microbenchmarks
-
-The repository also contains adapters for Memformer / Performer / Reformer / Longformer
-style modules used earlier as performance microbenchmarks. See the sections below and
-`HANDOFF.md` / `SOURCES.md` for provenance. These are **not** the Keyformer quality study.
-
-### Run (legacy microbenchmark)
-
-```powershell
-python -m pip install -r requirements-benchmark.txt
-python run_benchmark.py --seq-lengths 128 256 512 --dim 256 --heads 8 --runs 3
-```
-
-### Test
-
-```powershell
-python -m pytest -q
-```
+Public repo: https://github.com/lzr20082024/26summerBDMI_transformer

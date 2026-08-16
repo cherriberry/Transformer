@@ -1,0 +1,29 @@
+{
+  "method": "reformer",
+  "dataset": "Salesforce/wikitext wikitext-2-raw-v1 test",
+  "attention_fidelity_vs_full": {
+    "mse": 0.0028411138337105513,
+    "relative_l2": 1.518886923789978,
+    "cosine_similarity": -0.09846536070108414,
+    "chunks": 1,
+    "seq_len": 128,
+    "mode": "lsh_vs_standard_module"
+  },
+  "tiny_lm_standard": {
+    "train_steps": 120,
+    "train_loss_last": 3.489377975463867,
+    "eval_nll": 3.3699021180470785,
+    "eval_perplexity": 29.075680934074924,
+    "eval_windows": 15,
+    "seq_len": 128
+  },
+  "tiny_lm_reformer": {
+    "train_steps": 120,
+    "train_loss_last": 3.6205594539642334,
+    "eval_nll": 3.424907382329305,
+    "eval_perplexity": 30.71979952346503,
+    "eval_windows": 15,
+    "seq_len": 128
+  },
+  "device": "cuda"
+}

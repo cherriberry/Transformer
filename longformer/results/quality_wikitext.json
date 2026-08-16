@@ -1,0 +1,20 @@
+{
+  "method": "longformer",
+  "dataset": "Salesforce/wikitext wikitext-2-raw-v1 test",
+  "attention_fidelity_vs_full": {
+    "mse": 4.602255359031915e-07,
+    "relative_l2": 0.725453183054924,
+    "cosine_similarity": 0.8091540336608887,
+    "chunks": 4,
+    "seq_len": 128
+  },
+  "hf_mlm": {
+    "status": "ok",
+    "model": "allenai/longformer-base-4096",
+    "masked_lm_loss": 2.1417171955108643,
+    "masked_lm_ppl": 8.514045715332031,
+    "tokens": 256
+  },
+  "device": "cuda",
+  "note": "Fidelity compares local-window attention to full softmax on WikiText embeddings; HF MLM uses pretrained Longformer when downloadable."
+}

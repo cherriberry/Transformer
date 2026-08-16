@@ -1,0 +1,31 @@
+{
+  "method": "memformer",
+  "dataset": "Salesforce/wikitext wikitext-2-raw-v1 test",
+  "attention_effect_on_wikitext": {
+    "mse": 0.002423596568405628,
+    "relative_l2": 1.3739486932754517,
+    "cosine_similarity": 0.013236591592431068,
+    "chunks": 1,
+    "seq_len": 128,
+    "mode": "memory_augmented_vs_standard",
+    "note": "Not an approximation of full attention; measures effect of persistent memory slots on WikiText embeddings."
+  },
+  "tiny_lm_standard": {
+    "train_steps": 120,
+    "train_loss_last": 3.453247547149658,
+    "eval_nll": 3.441395473480225,
+    "eval_perplexity": 31.230509121394853,
+    "eval_windows": 15,
+    "seq_len": 128
+  },
+  "tiny_lm_memformer_like": {
+    "train_steps": 120,
+    "train_loss_last": 3.234945774078369,
+    "eval_nll": 3.3252306938171388,
+    "eval_perplexity": 27.805412439562375,
+    "eval_windows": 15,
+    "seq_len": 128
+  },
+  "device": "cuda",
+  "source_note": "Performance microbenchmark artifacts retained from teammate Memformer/Performer/Reformer suite; quality uses Memformer-style memory slots on WikiText."
+}
