@@ -1,0 +1,15 @@
+{
+  "name": "quick",
+  "model": "openai-community/gpt2-medium",
+  "dataset": "Salesforce/wikitext",
+  "dataset_config": "wikitext-2-raw-v1",
+  "dtype": "float16",
+  "batch_size": 1,
+  "decode_tokens": 16,
+  "prompt_lengths": [128, 256],
+  "cache_ratios": [0.5, 1.0],
+  "seeds": [17],
+  "recent_window_ratio": 0.5,
+  "policies": ["full_kv", "keyformer", "recent_window", "random_plus_recent"],
+  "keyformer": {"tau_init": 1.0, "tau_delta": 0.01, "gumbel_noise": true}
+}

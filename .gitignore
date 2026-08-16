@@ -1,0 +1,16 @@
+﻿__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+.coverage
+benchmark_results/*.json
+benchmark_results/*.png
+*.zip
+.idea/
+.vscode/
+*.bak
+.codex/
+
+**/enwik8.gz
+

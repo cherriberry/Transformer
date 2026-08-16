@@ -1,0 +1,42 @@
+model_name: openai-community/gpt2-medium
+dtype: float16
+device: cuda
+batch_size: 1
+decoding: greedy
+gumbel:
+  tau_init: 1.0
+  tau_delta: 0.01
+recent_ratio_default: 0.5
+policies:
+  - full_kv
+  - recent_window
+  - random_plus_recent
+  - keyformer
+quick:
+  prompt_lengths: [128, 256]
+  generation_lengths: [16]
+  cache_ratios: [0.5, 1.0]
+  recent_ratios: [0.5]
+  seeds: [0]
+  warmup: 2
+  repeats: 1
+final:
+  # GPT-2 Medium n_positions=1024, so prompt+gen must stay <= 1024.
+  prompt_lengths: [256, 512, 768]
+  generation_lengths: [128]
+  cache_ratios: [0.25, 0.5, 0.75, 1.0]
+  recent_ratios: [0.5]
+  recent_ablation: [0.25]
+  seeds: [0, 1, 2]
+  warmup: 3
+  repeats: 1
+quality_quick:
+  max_tokens: 2048
+  context: 512
+  cache_ratios: [0.5, 1.0]
+  seeds: [0]
+quality_final:
+  max_tokens: 2048
+  contexts: [512]
+  cache_ratios: [0.25, 0.5, 0.75, 1.0]
+  seeds: [0, 1, 2]

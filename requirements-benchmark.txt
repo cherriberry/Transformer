@@ -1,0 +1,9 @@
+torch>=2.0
+einops>=0.3
+local-attention>=1.1.1
+axial-positional-embedding>=0.1.0
+product-key-memory>=0.2.0
+psutil
+matplotlib
+numpy
+pytest
