@@ -1,0 +1,139 @@
+protocol_version: long_context_10m_v1
+protocol_status: frozen_for_b_pilot
+scope: role_b_longformer_memformer
+objective: >-
+  Compare causal Longformer and Memformer under the same TinyLM backbone,
+  data order, token budget, optimizer and evaluation protocol.
+result_labels:
+  pilot: parameter_screening
+  main: main_10m
+  mechanism: innovation_validation
+
+hardware:
+  detected_gpu: NVIDIA GeForce RTX 4070 Laptop GPU
+  detected_vram_gib: 8
+  recommended_gpu: RTX 4090 24GB or higher
+  execution_mode: single_gpu_pilot
+  device: cuda:0
+  dtype: bfloat16
+
+dataset:
+  primary: PG-19
+  source: huggingface_pg19_or_traceable_mirror
+  splits: [train, validation, test]
+  tokenizer: gpt2
+  vocab_size: 50257
+  add_eos_at_document_end: true
+  cross_document_packing: false
+  status: pending_download_and_dependency_check
+  fallback_policy: synthetic_copy_stream_must_be_explicitly_labeled
+  control_dataset: Salesforce/wikitext:wikitext-103-raw-v1
+
+model:
+  family: TinyLM-long-v1
+  vocab_size: 50257
+  layers: 6
+  hidden_size: 384
+  heads: 8
+  head_dim: 48
+  ffn_size: 1536
+  activation: GELU
+  normalization: Pre-LN
+  position_encoding: RoPE
+  rope_max_position: 32768
+  dropout: 0.1
+  attention_dropout: 0.0
+  tie_input_output_embeddings: true
+  use_bias: false
+  causal: true
+
+training:
+  optimizer: AdamW
+  learning_rate: 0.0003
+  betas: [0.9, 0.95]
+  epsilon: 0.00000001
+  weight_decay: 0.1
+  warmup_ratio: 0.03
+  lr_schedule: cosine
+  minimum_learning_rate: 0.00003
+  gradient_clip_norm: 1.0
+  train_context: 4096
+  effective_batch_tokens: 32768
+  micro_batch_sequences: 1
+  gradient_accumulation_steps: 8
+  pilot_tokens: 2031616
+  main_tokens: 10027008
+  pilot_seed: 17
+  main_seeds: [17, 29, 43]
+  validation_interval_steps: 64
+  checkpoint_interval_steps: 64
+  checkpoint_validation_tokens: 262144
+  final_validation_tokens: 1048576
+  final_test_tokens: 1048576
+  amp: bfloat16
+  loss_accumulation: float32
+
+methods:
+  longformer:
+    method_id: longformer
+    attention: causal_left_sliding_window
+    left_window_candidates: [128, 512, 1024, 2048]
+    global_tokens: 0
+    main_left_window: 512
+    implementation_window_size: 1025
+    query_chunk_size: 256
+  memformer:
+    method_id: memformer
+    attention: causal_recurrent_memory
+    candidates:
+      - {segment_length: 256, memory_slots: 64}
+      - {segment_length: 512, memory_slots: 32}
+      - {segment_length: 512, memory_slots: 64}
+      - {segment_length: 512, memory_slots: 128}
+    main_segment_length: 512
+    main_memory_slots: 64
+    segments_per_example: 8
+    detach_memory_within_example: false
+    reset_between_documents: true
+    reset_on_batch_reorder: true
+
+screening:
+  dataset_split: train
+  tokens_per_candidate: 2031616
+  seed: 17
+  selection_order:
+    - correctness
+    - finite_loss_and_gradients
+    - validation_nll
+    - throughput_if_nll_within_1_percent
+    - peak_memory_if_throughput_within_5_percent
+  test_usage: forbidden_until_configuration_freeze
+
+correctness:
+  future_invariance_fp32_max_abs_delta: 0.00001
+  future_invariance_bf16_max_abs_delta: 0.005
+  require_full_window_equivalence: true
+  require_padding_invariance: true
+  require_finite_gradients: true
+  require_memory_reset_and_reorder: true
+  require_checkpoint_recovery: true
+
+evaluation:
+  history_lengths: [512, 1024, 2048, 4096, 8192, 16384]
+  target_length: 512
+  samples_per_history_length: 256
+  synthetic_tasks: [local_copy, in_segment_retrieval, cross_segment_passkey]
+  benchmark_lengths: [1024, 2048, 4096, 8192, 16384]
+  benchmark_batch_size: 1
+  benchmark_warmup_runs: 20
+  benchmark_timed_runs: 50
+
+audit:
+  save_resolved_config: true
+  save_environment: true
+  save_raw_jsonl: true
+  save_stdout_log: true
+  save_failure_records: true
+  git_commit_required: true
+  manifest_hash_required: true
+  config_hash_required: true

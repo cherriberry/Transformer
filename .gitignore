@@ -14,3 +14,7 @@ benchmark_results/*.png
 
 **/enwik8.gz
 
+.conda39/
+.conda_pkgs/
+PLANS/
+

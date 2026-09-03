@@ -1,0 +1,390 @@
+{
+  "config": {
+    "dim": 384,
+    "heads": 8,
+    "lengths": [
+      128,
+      256,
+      512,
+      1024,
+      2048,
+      4096
+    ],
+    "batch_size": 1,
+    "causal": true,
+    "runs": 3,
+    "warmup": 2,
+    "dtype": "torch.bfloat16"
+  },
+  "environment": {
+    "python": "3.14.6",
+    "torch": "2.11.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "device": "cuda",
+    "dtype": "bfloat16",
+    "gpu": "NVIDIA GeForce RTX 4070 Laptop GPU",
+    "cuda_runtime": "13.0"
+  },
+  "records": [
+    {
+      "run_id": "b-standard-128-s17",
+      "method": "Standard",
+      "variant": "Standard",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 128,
+      "config_hash": "512c5b208f2f",
+      "status": "ok",
+      "median_latency_s": 0.0003717119980137795,
+      "mean_latency_s": 0.0003911466697851817,
+      "tokens_per_s": 344352.6189199171,
+      "peak_allocated_mb": 23.40185546875,
+      "peak_reserved_mb": 28.0,
+      "timed_samples_s": [
+        0.00044736000895500183,
+        0.0003717119991779327,
+        0.0003543680012226105
+      ]
+    },
+    {
+      "run_id": "b-longformer_w128_g1-128-s17",
+      "method": "Longformer",
+      "variant": "Longformer_w128_g1",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 128,
+      "config_hash": "f5a06f9fd73e",
+      "status": "ok",
+      "median_latency_s": 0.0014009280130267143,
+      "mean_latency_s": 0.001457696000734965,
+      "tokens_per_s": 91368.00664257912,
+      "peak_allocated_mb": 35.73291015625,
+      "peak_reserved_mb": 42.0,
+      "timed_samples_s": [
+        0.001571552038192749,
+        0.001400607943534851,
+        0.0014009280204772948
+      ]
+    },
+    {
+      "run_id": "b-memformer_s256_m64-128-s17",
+      "method": "Memformer",
+      "variant": "Memformer_s256_m64",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 128,
+      "config_hash": "413473d268a6",
+      "status": "ok",
+      "median_latency_s": 0.0008550400380045176,
+      "mean_latency_s": 0.0009133866826693217,
+      "tokens_per_s": 149700.59214855588,
+      "peak_allocated_mb": 25.60888671875,
+      "peak_reserved_mb": 30.0,
+      "timed_samples_s": [
+        0.0010813440084457397,
+        0.0008550400137901307,
+        0.0008037760257720947
+      ]
+    },
+    {
+      "run_id": "b-standard-256-s17",
+      "method": "Standard",
+      "variant": "Standard",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 256,
+      "config_hash": "46761d41e85b",
+      "status": "ok",
+      "median_latency_s": 0.0004454400041140616,
+      "mean_latency_s": 0.0006061439911524455,
+      "tokens_per_s": 574712.6383701437,
+      "peak_allocated_mb": 29.9267578125,
+      "peak_reserved_mb": 52.0,
+      "timed_samples_s": [
+        0.0010043519735336303,
+        0.0003686400055885315,
+        0.0004454399943351746
+      ]
+    },
+    {
+      "run_id": "b-longformer_w128_g1-256-s17",
+      "method": "Longformer",
+      "variant": "Longformer_w128_g1",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 256,
+      "config_hash": "10f975d3d348",
+      "status": "ok",
+      "median_latency_s": 0.0013642240082845092,
+      "mean_latency_s": 0.001506389300028483,
+      "tokens_per_s": 187652.46649039412,
+      "peak_allocated_mb": 51.865234375,
+      "peak_reserved_mb": 60.0,
+      "timed_samples_s": [
+        0.0018718719482421875,
+        0.0013642239570617676,
+        0.0012830719947814942
+      ]
+    },
+    {
+      "run_id": "b-memformer_s256_m64-256-s17",
+      "method": "Memformer",
+      "variant": "Memformer_s256_m64",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 256,
+      "config_hash": "603a0ff0909c",
+      "status": "ok",
+      "median_latency_s": 0.0009052159730345011,
+      "mean_latency_s": 0.0011032106479008992,
+      "tokens_per_s": 282805.4382887507,
+      "peak_allocated_mb": 31.37451171875,
+      "peak_reserved_mb": 50.0,
+      "timed_samples_s": [
+        0.001528831958770752,
+        0.0008755840063095092,
+        0.0009052159786224366
+      ]
+    },
+    {
+      "run_id": "b-standard-512-s17",
+      "method": "Standard",
+      "variant": "Standard",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 512,
+      "config_hash": "2b389341aa9f",
+      "status": "ok",
+      "median_latency_s": 0.00038159999530762434,
+      "mean_latency_s": 0.0005453546643257141,
+      "tokens_per_s": 1341719.094066693,
+      "peak_allocated_mb": 45.9580078125,
+      "peak_reserved_mb": 52.0,
+      "timed_samples_s": [
+        0.000899071991443634,
+        0.0003815999925136566,
+        0.0003553920090198517
+      ]
+    },
+    {
+      "run_id": "b-longformer_w128_g1-512-s17",
+      "method": "Longformer",
+      "variant": "Longformer_w128_g1",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 512,
+      "config_hash": "226eb8562902",
+      "status": "ok",
+      "median_latency_s": 0.0022906879894435406,
+      "mean_latency_s": 0.0026712746620178225,
+      "tokens_per_s": 223513.63536173964,
+      "peak_allocated_mb": 54.3037109375,
+      "peak_reserved_mb": 62.0,
+      "timed_samples_s": [
+        0.003436415910720825,
+        0.0022906880378723146,
+        0.0022867200374603273
+      ]
+    },
+    {
+      "run_id": "b-memformer_s256_m64-512-s17",
+      "method": "Memformer",
+      "variant": "Memformer_s256_m64",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 512,
+      "config_hash": "0f85664ab8db",
+      "status": "ok",
+      "median_latency_s": 0.0015687040286138654,
+      "mean_latency_s": 0.001970250686009725,
+      "tokens_per_s": 326384.06650387216,
+      "peak_allocated_mb": 31.74951171875,
+      "peak_reserved_mb": 50.0,
+      "timed_samples_s": [
+        0.002903104066848755,
+        0.0015687040090560914,
+        0.0014389439821243285
+      ]
+    },
+    {
+      "run_id": "b-standard-1024-s17",
+      "method": "Standard",
+      "variant": "Standard",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 1024,
+      "config_hash": "b340c99c0bb2",
+      "status": "ok",
+      "median_latency_s": 0.0011026879074051976,
+      "mean_latency_s": 0.001729055960973104,
+      "tokens_per_s": 928639.9108244844,
+      "peak_allocated_mb": 108.3955078125,
+      "peak_reserved_mb": 132.0,
+      "timed_samples_s": [
+        0.003010175943374634,
+        0.001074303984642029,
+        0.001102687954902649
+      ]
+    },
+    {
+      "run_id": "b-longformer_w128_g1-1024-s17",
+      "method": "Longformer",
+      "variant": "Longformer_w128_g1",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 1024,
+      "config_hash": "55e3d0e5333b",
+      "status": "ok",
+      "median_latency_s": 0.0032727038487792015,
+      "mean_latency_s": 0.0038003625869750973,
+      "tokens_per_s": 312891.12835002685,
+      "peak_allocated_mb": 57.771484375,
+      "peak_reserved_mb": 66.0,
+      "timed_samples_s": [
+        0.004954783916473388,
+        0.0031735999584197997,
+        0.0032727038860321045
+      ]
+    },
+    {
+      "run_id": "b-memformer_s256_m64-1024-s17",
+      "method": "Memformer",
+      "variant": "Memformer_s256_m64",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 1024,
+      "config_hash": "605e4eace0c6",
+      "status": "ok",
+      "median_latency_s": 0.0035471359733492136,
+      "mean_latency_s": 0.003446197350819906,
+      "tokens_per_s": 288683.6049403364,
+      "peak_allocated_mb": 32.49951171875,
+      "peak_reserved_mb": 52.0,
+      "timed_samples_s": [
+        0.003547136068344116,
+        0.0031992640495300292,
+        0.0035921919345855715
+      ]
+    },
+    {
+      "run_id": "b-standard-2048-s17",
+      "method": "Standard",
+      "variant": "Standard",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 2048,
+      "config_hash": "ab14d431eae4",
+      "status": "ok",
+      "median_latency_s": 0.005522431805729866,
+      "mean_latency_s": 0.007509674708048503,
+      "tokens_per_s": 370851.11632796854,
+      "peak_allocated_mb": 355.5205078125,
+      "peak_reserved_mb": 436.0,
+      "timed_samples_s": [
+        0.011606016159057618,
+        0.00552243185043335,
+        0.005400576114654541
+      ]
+    },
+    {
+      "run_id": "b-longformer_w128_g1-2048-s17",
+      "method": "Longformer",
+      "variant": "Longformer_w128_g1",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 2048,
+      "config_hash": "511d1fa85297",
+      "status": "ok",
+      "median_latency_s": 0.008513536304235458,
+      "mean_latency_s": 0.008008362929026286,
+      "tokens_per_s": 240558.08618342606,
+      "peak_allocated_mb": 65.45703125,
+      "peak_reserved_mb": 80.0,
+      "timed_samples_s": [
+        0.006666240215301514,
+        0.008845312118530273,
+        0.00851353645324707
+      ]
+    },
+    {
+      "run_id": "b-memformer_s256_m64-2048-s17",
+      "method": "Memformer",
+      "variant": "Memformer_s256_m64",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 2048,
+      "config_hash": "541728547219",
+      "status": "ok",
+      "median_latency_s": 0.006527999881654978,
+      "mean_latency_s": 0.00675220266977946,
+      "tokens_per_s": 313725.49588355556,
+      "peak_allocated_mb": 34.68701171875,
+      "peak_reserved_mb": 50.0,
+      "timed_samples_s": [
+        0.0073368000984191896,
+        0.006527999877929688,
+        0.006391808032989502
+      ]
+    },
+    {
+      "run_id": "b-standard-4096-s17",
+      "method": "Standard",
+      "variant": "Standard",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 4096,
+      "config_hash": "ab5ef1fe3cae",
+      "status": "ok",
+      "median_latency_s": 0.02195148915052414,
+      "mean_latency_s": 0.03174912007649739,
+      "tokens_per_s": 186593.26353274757,
+      "peak_allocated_mb": 1333.5205078125,
+      "peak_reserved_mb": 1844.0,
+      "timed_samples_s": [
+        0.05140991973876953,
+        0.021951488494873047,
+        0.02188595199584961
+      ]
+    },
+    {
+      "run_id": "b-longformer_w128_g1-4096-s17",
+      "method": "Longformer",
+      "variant": "Longformer_w128_g1",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 4096,
+      "config_hash": "f3028f23a804",
+      "status": "ok",
+      "median_latency_s": 0.010758144780993462,
+      "mean_latency_s": 0.01089467716217041,
+      "tokens_per_s": 380734.7905594699,
+      "peak_allocated_mb": 78.578125,
+      "peak_reserved_mb": 100.0,
+      "timed_samples_s": [
+        0.011619327545166015,
+        0.01075814437866211,
+        0.010306559562683105
+      ]
+    },
+    {
+      "run_id": "b-memformer_s256_m64-4096-s17",
+      "method": "Memformer",
+      "variant": "Memformer_s256_m64",
+      "label": "matched_tinylm",
+      "seed": 17,
+      "seq_len": 4096,
+      "config_hash": "c1ebfc2dc01e",
+      "status": "ok",
+      "median_latency_s": 0.013877344317734241,
+      "mean_latency_s": 0.013475637118021647,
+      "tokens_per_s": 295157.3374716666,
+      "peak_allocated_mb": 36.99951171875,
+      "peak_reserved_mb": 52.0,
+      "timed_samples_s": [
+        0.013877344131469727,
+        0.013919455528259277,
+        0.012630111694335937
+      ]
+    }
+  ]
+}

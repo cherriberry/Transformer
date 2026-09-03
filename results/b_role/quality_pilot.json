@@ -1,0 +1,26 @@
+{
+  "environment": {
+    "python": "3.14.6",
+    "torch": "2.11.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "device": "cuda",
+    "dtype": "bfloat16",
+    "gpu": "NVIDIA GeForce RTX 4070 Laptop GPU",
+    "cuda_runtime": "13.0"
+  },
+  "label": "matched_tinylm",
+  "seq_len": 256,
+  "dim": 384,
+  "heads": 8,
+  "longformer_vs_full_causal": {
+    "mse": 0.0007376970606856048,
+    "relative_l2": 0.47415977716445923,
+    "cosine_similarity": 0.9067529439926147
+  },
+  "memformer_effect_vs_full_causal": {
+    "mse": 0.004686436615884304,
+    "relative_l2": 1.1951078176498413,
+    "cosine_similarity": 0.0121453907340765
+  },
+  "note": "Longformer uses shared QKV/output weights for fidelity; Memformer changes the information path and is therefore reported as an effect, not approximation fidelity."
+}

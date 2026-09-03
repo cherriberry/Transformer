@@ -1,0 +1,55 @@
+{
+  "protocol_version": "long_context_10m_v1",
+  "dtype": "float32_reference",
+  "status": "passed",
+  "tests": {
+    "longformer_future_invariance": {
+      "value": 0.0,
+      "limit": 1e-05
+    },
+    "longformer_full_window_equivalence": {
+      "value": 1.043081283569336e-07,
+      "limit": 1e-05
+    },
+    "longformer_padding_invariance": {
+      "value": 5.960464477539063e-08,
+      "limit": 1e-05
+    },
+    "longformer_checkpoint_recovery": {
+      "value": 0.0,
+      "limit": 1e-07
+    },
+    "memformer_future_invariance": {
+      "value": 0.0,
+      "limit": 1e-05
+    },
+    "memformer_padding_by_causal_append": {
+      "value": 0.0,
+      "limit": 1e-05
+    },
+    "memformer_history_effect": {
+      "value": 0.058104775846004486,
+      "minimum": 1e-08
+    },
+    "memformer_reset": {
+      "value": 0.0,
+      "limit": 1e-05
+    },
+    "memformer_batch_reorder": {
+      "value": 0.0,
+      "limit": 1e-05
+    },
+    "memformer_checkpoint_recovery": {
+      "value": 0.0,
+      "limit": 1e-07
+    }
+  },
+  "longformer_all_gradients_finite": true,
+  "memformer_missing_or_nonfinite_gradients": [],
+  "memformer_state_shape": [
+    1,
+    8,
+    32
+  ],
+  "memformer_state_elements": 256
+}

@@ -1,0 +1,56 @@
+{
+  "environment": {
+    "python": "3.14.6",
+    "torch": "2.11.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "device": "cuda",
+    "dtype": "bfloat16",
+    "gpu": "NVIDIA GeForce RTX 4070 Laptop GPU",
+    "cuda_runtime": "13.0"
+  },
+  "records": [
+    {
+      "method": "Standard",
+      "label": "matched_tinylm",
+      "dataset": "synthetic_copy_stream_fallback",
+      "seed": 17,
+      "seq_len": 128,
+      "layers": 6,
+      "hidden_size": 384,
+      "heads": 8,
+      "train_steps": 12,
+      "train_loss_last": 1.0530732870101929,
+      "eval_nll": 0.8882866501808167,
+      "eval_perplexity": 2.4309609945455697
+    },
+    {
+      "method": "Longformer",
+      "label": "matched_tinylm",
+      "dataset": "synthetic_copy_stream_fallback",
+      "seed": 17,
+      "seq_len": 128,
+      "layers": 6,
+      "hidden_size": 384,
+      "heads": 8,
+      "train_steps": 12,
+      "train_loss_last": 1.0361607074737549,
+      "eval_nll": 0.8717564344406128,
+      "eval_perplexity": 2.391106989994608
+    },
+    {
+      "method": "Memformer",
+      "label": "matched_tinylm",
+      "dataset": "synthetic_copy_stream_fallback",
+      "seed": 17,
+      "seq_len": 128,
+      "layers": 6,
+      "hidden_size": 384,
+      "heads": 8,
+      "train_steps": 12,
+      "train_loss_last": 1.1844807863235474,
+      "eval_nll": 1.0130138397216797,
+      "eval_perplexity": 2.7538882984148625
+    }
+  ],
+  "note": "Synthetic fallback only; WikiText-2 quality requires optional datasets/transformers dependencies and remains separately cited from existing artifacts."
+}

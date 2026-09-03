@@ -1,0 +1,365 @@
+{
+  "note": "Mechanism task is structural reachability/state-capacity validation, not trained task accuracy.",
+  "records": [
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": false,
+      "window": 64,
+      "global_tokens": 0,
+      "layers": 6,
+      "reachable_fraction": 0.0,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": false,
+      "window": 64,
+      "global_tokens": 1,
+      "layers": 6,
+      "reachable_fraction": 1.0,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": false,
+      "window": 64,
+      "global_tokens": 4,
+      "layers": 6,
+      "reachable_fraction": 1.0,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": false,
+      "window": 128,
+      "global_tokens": 0,
+      "layers": 6,
+      "reachable_fraction": 0.0,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": false,
+      "window": 128,
+      "global_tokens": 1,
+      "layers": 6,
+      "reachable_fraction": 1.0,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": false,
+      "window": 128,
+      "global_tokens": 4,
+      "layers": 6,
+      "reachable_fraction": 1.0,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": false,
+      "window": 256,
+      "global_tokens": 0,
+      "layers": 6,
+      "reachable_fraction": 0.7514619827270508,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": false,
+      "window": 256,
+      "global_tokens": 1,
+      "layers": 6,
+      "reachable_fraction": 1.0,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": false,
+      "window": 256,
+      "global_tokens": 4,
+      "layers": 6,
+      "reachable_fraction": 1.0,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": false,
+      "window": 512,
+      "global_tokens": 0,
+      "layers": 6,
+      "reachable_fraction": 1.0,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": false,
+      "window": 512,
+      "global_tokens": 1,
+      "layers": 6,
+      "reachable_fraction": 1.0,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": false,
+      "window": 512,
+      "global_tokens": 4,
+      "layers": 6,
+      "reachable_fraction": 1.0,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": true,
+      "window": 64,
+      "global_tokens": 0,
+      "layers": 6,
+      "reachable_fraction": 0.0,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": true,
+      "window": 64,
+      "global_tokens": 1,
+      "layers": 6,
+      "reachable_fraction": 0.001949317753314972,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": true,
+      "window": 64,
+      "global_tokens": 4,
+      "layers": 6,
+      "reachable_fraction": 0.007774427533149719,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": true,
+      "window": 128,
+      "global_tokens": 0,
+      "layers": 6,
+      "reachable_fraction": 0.0,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": true,
+      "window": 128,
+      "global_tokens": 1,
+      "layers": 6,
+      "reachable_fraction": 0.001949317753314972,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": true,
+      "window": 128,
+      "global_tokens": 4,
+      "layers": 6,
+      "reachable_fraction": 0.007774427533149719,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": true,
+      "window": 256,
+      "global_tokens": 0,
+      "layers": 6,
+      "reachable_fraction": 0.3757309913635254,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": true,
+      "window": 256,
+      "global_tokens": 1,
+      "layers": 6,
+      "reachable_fraction": 0.37670183181762695,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": true,
+      "window": 256,
+      "global_tokens": 4,
+      "layers": 6,
+      "reachable_fraction": 0.37959155440330505,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": true,
+      "window": 512,
+      "global_tokens": 0,
+      "layers": 6,
+      "reachable_fraction": 0.5,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": true,
+      "window": 512,
+      "global_tokens": 1,
+      "layers": 6,
+      "reachable_fraction": 0.5,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Longformer",
+      "task": "Passkey/Copy/Needle reachability",
+      "causal": true,
+      "window": 512,
+      "global_tokens": 4,
+      "layers": 6,
+      "reachable_fraction": 0.5,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Memformer",
+      "task": "cross-segment state path",
+      "memory_slots": 16,
+      "segment_length": 128,
+      "state_elements": 6144,
+      "state_bytes_bf16": 12288,
+      "cross_segment_reachable": true,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Memformer",
+      "task": "cross-segment state path",
+      "memory_slots": 16,
+      "segment_length": 256,
+      "state_elements": 6144,
+      "state_bytes_bf16": 12288,
+      "cross_segment_reachable": true,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Memformer",
+      "task": "cross-segment state path",
+      "memory_slots": 16,
+      "segment_length": 512,
+      "state_elements": 6144,
+      "state_bytes_bf16": 12288,
+      "cross_segment_reachable": true,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Memformer",
+      "task": "cross-segment state path",
+      "memory_slots": 32,
+      "segment_length": 128,
+      "state_elements": 12288,
+      "state_bytes_bf16": 24576,
+      "cross_segment_reachable": true,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Memformer",
+      "task": "cross-segment state path",
+      "memory_slots": 32,
+      "segment_length": 256,
+      "state_elements": 12288,
+      "state_bytes_bf16": 24576,
+      "cross_segment_reachable": true,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Memformer",
+      "task": "cross-segment state path",
+      "memory_slots": 32,
+      "segment_length": 512,
+      "state_elements": 12288,
+      "state_bytes_bf16": 24576,
+      "cross_segment_reachable": true,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Memformer",
+      "task": "cross-segment state path",
+      "memory_slots": 64,
+      "segment_length": 128,
+      "state_elements": 24576,
+      "state_bytes_bf16": 49152,
+      "cross_segment_reachable": true,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Memformer",
+      "task": "cross-segment state path",
+      "memory_slots": 64,
+      "segment_length": 256,
+      "state_elements": 24576,
+      "state_bytes_bf16": 49152,
+      "cross_segment_reachable": true,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Memformer",
+      "task": "cross-segment state path",
+      "memory_slots": 64,
+      "segment_length": 512,
+      "state_elements": 24576,
+      "state_bytes_bf16": 49152,
+      "cross_segment_reachable": true,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Memformer",
+      "task": "cross-segment state path",
+      "memory_slots": 128,
+      "segment_length": 128,
+      "state_elements": 49152,
+      "state_bytes_bf16": 98304,
+      "cross_segment_reachable": true,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Memformer",
+      "task": "cross-segment state path",
+      "memory_slots": 128,
+      "segment_length": 256,
+      "state_elements": 49152,
+      "state_bytes_bf16": 98304,
+      "cross_segment_reachable": true,
+      "label": "innovation_validation"
+    },
+    {
+      "method": "Memformer",
+      "task": "cross-segment state path",
+      "memory_slots": 128,
+      "segment_length": 512,
+      "state_elements": 49152,
+      "state_bytes_bf16": 98304,
+      "cross_segment_reachable": true,
+      "label": "innovation_validation"
+    }
+  ]
+}

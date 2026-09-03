@@ -1,0 +1,25 @@
+{
+  "protocol_version": "long_context_10m_v1",
+  "scope": "role_b_longformer_memformer",
+  "config_status": {
+    "status": "ok",
+    "rows": 8,
+    "errors": []
+  },
+  "files": {
+    "protocol_yaml": {
+      "path": "D:\\！！Learning\\26 summer BDMI\\ALL formers\\26summerBDMI_transformer\\experiments\\long_context_10m_v1\\protocol.yaml",
+      "sha256": "5681ebb95f827ba3d80ce6f9eef0a916af6de9734fec78a624c46627b019eae5"
+    },
+    "jobs_csv": {
+      "path": "D:\\！！Learning\\26 summer BDMI\\ALL formers\\26summerBDMI_transformer\\experiments\\long_context_10m_v1\\jobs\\jobs.csv",
+      "sha256": "229e1979fbb8a49096003d626010a4b2cf16f9f2b276311d89ec339a495be18c"
+    }
+  },
+  "environment": {
+    "python": "3.9.25",
+    "python_executable": "D:\\！！Learning\\26 summer BDMI\\ALL formers\\26summerBDMI_transformer\\.conda39\\python.exe",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "git_commit": "0e86fe7e5614cb11a691a5782d9d68d9851d8b09"
+  }
+}

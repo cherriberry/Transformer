@@ -1,0 +1,12 @@
+protocol_version: long_context_10m_v1
+result_label: parameter_screening
+method: memformer
+seed: 17
+attention: causal_recurrent_memory
+segment_length: 256
+memory_slots: 64
+segments_per_example: 8
+detach_memory_within_example: false
+reset_between_documents: true
+reset_on_batch_reorder: true
+causal: true

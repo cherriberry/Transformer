@@ -43,6 +43,8 @@ class LongformerSelfAttention(nn.Module):
         global_tokens: int = 1,
         dropout: float = 0.0,
         bias: bool = False,
+        causal: bool = False,
+        query_chunk_size: int = 256,
     ) -> None:
         super().__init__()
         if dim % heads != 0:
@@ -58,6 +60,10 @@ class LongformerSelfAttention(nn.Module):
         self.window_size = window_size
         self.window_radius = window_size // 2
         self.global_tokens = global_tokens
+        self.causal = causal
+        if query_chunk_size <= 0:
+            raise ValueError("query_chunk_size must be positive")
+        self.query_chunk_size = query_chunk_size
         self.scale = self.head_dim**-0.5
 
         self.to_q = nn.Linear(dim, dim, bias=bias)
@@ -81,7 +87,11 @@ class LongformerSelfAttention(nn.Module):
     def _local_valid_mask(self, sequence: int, device: torch.device) -> torch.Tensor:
         offsets = torch.arange(-self.window_radius, self.window_radius + 1, device=device)
         positions = torch.arange(sequence, device=device).unsqueeze(-1) + offsets
-        return (positions >= 0) & (positions < sequence)
+        valid = (positions >= 0) & (positions < sequence)
+        if self.causal:
+            query_positions = torch.arange(sequence, device=device).unsqueeze(-1)
+            valid = valid & (positions <= query_positions)
+        return valid
 
     def forward(
         self,
@@ -114,7 +124,6 @@ class LongformerSelfAttention(nn.Module):
 
         k_windows = self._local_windows(k)
         v_windows = self._local_windows(v)
-        local_scores = torch.einsum("bhnd,bhnwd->bhnw", q, k_windows) * self.scale
 
         boundary_mask = self._local_valid_mask(sequence, x.device)
         padded_valid = F.pad(valid_tokens, (self.window_radius, self.window_radius), value=False)
@@ -135,32 +144,53 @@ class LongformerSelfAttention(nn.Module):
             global_v = v[:, :, :global_count, :]
             global_scores = torch.einsum("bhnd,bhgd->bhng", q, global_k) * self.scale
             global_valid = valid_tokens[:, :global_count]
-            scores = torch.cat((local_scores, global_scores), dim=-1)
-            score_valid = torch.cat(
-                (
-                    local_valid[:, None, :, :],
-                    global_valid[:, None, None, :].expand(batch, 1, sequence, global_count),
-                ),
-                dim=-1,
-            )
+            if self.causal:
+                query_positions = torch.arange(sequence, device=x.device).view(1, sequence, 1)
+                global_positions = torch.arange(global_count, device=x.device).view(1, 1, global_count)
+                global_valid = global_valid[:, None, :].expand(batch, sequence, global_count)
+                global_valid = global_valid & (global_positions <= query_positions)
+            global_v = v[:, :, :global_count, :]
+            global_mask_all = global_valid[:, None, :, :] if self.causal else global_valid[:, None, None, :].expand(batch, 1, sequence, global_count)
         else:
             global_v = None
-            scores = local_scores
-            score_valid = local_valid[:, None, :, :]
+            global_mask_all = None
 
-        scores = scores.masked_fill(~score_valid, torch.finfo(scores.dtype).min)
-        attention = self.dropout(torch.softmax(scores, dim=-1))
-        local_attention = attention[..., : self.window_size]
-        output = torch.einsum("bhnw,bhnwd->bhnd", local_attention, v_windows)
-
-        if global_count and global_v is not None:
-            global_attention = attention[..., self.window_size :]
-            output = output + torch.einsum("bhng,bhgd->bhnd", global_attention, global_v)
+        # Chunk query positions to prevent PyTorch from materializing a large
+        # contiguous copy of the strided [B,H,N,W,D] unfold view. This keeps
+        # peak temporary storage proportional to query_chunk_size * W * D.
+        output = torch.zeros_like(q)
+        min_value = torch.finfo(q.dtype).min
+        for start in range(0, sequence, self.query_chunk_size):
+            end = min(sequence, start + self.query_chunk_size)
+            q_chunk = q[:, :, start:end, :]
+            kw_chunk = k_windows[:, :, start:end, :, :]
+            vw_chunk = v_windows[:, :, start:end, :, :]
+            local_scores = torch.einsum("bhnd,bhnwd->bhnw", q_chunk, kw_chunk) * self.scale
+            local_mask = local_valid[:, None, start:end, :]
+            if global_count and global_v is not None and global_mask_all is not None:
+                global_scores = torch.einsum("bhnd,bhgd->bhng", q_chunk, global_k) * self.scale
+                scores = torch.cat((local_scores, global_scores), dim=-1)
+                score_valid = torch.cat((local_mask, global_mask_all[:, :, start:end, :]), dim=-1)
+            else:
+                scores = local_scores
+                score_valid = local_mask
+            scores = scores.masked_fill(~score_valid, min_value)
+            attention = self.dropout(torch.softmax(scores, dim=-1))
+            local_attention = attention[..., : self.window_size]
+            chunk_output = torch.einsum("bhnw,bhnwd->bhnd", local_attention, vw_chunk)
+            if global_count and global_v is not None:
+                global_attention = attention[..., self.window_size :]
+                chunk_output = chunk_output + torch.einsum("bhng,bhgd->bhnd", global_attention, global_v)
+            output[:, :, start:end, :] = chunk_output
 
             # Global queries attend exactly once to every valid token.  Replacing
             # these rows also removes duplicate local/global keys from their path.
             global_q = q[:, :, :global_count, :]
             full_scores = torch.einsum("bhgd,bhnd->bhgn", global_q, k) * self.scale
+            if self.causal:
+                positions = torch.arange(sequence, device=x.device)
+                causal_mask = positions.view(1, 1, 1, sequence) <= positions[:global_count].view(1, 1, global_count, 1)
+                full_scores = full_scores.masked_fill(~causal_mask, torch.finfo(full_scores.dtype).min)
             full_scores = full_scores.masked_fill(
                 ~valid_tokens[:, None, None, :], torch.finfo(full_scores.dtype).min
             )

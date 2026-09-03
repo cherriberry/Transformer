@@ -1,0 +1,22 @@
+{
+  "longformer_shape": [
+    2,
+    37,
+    32
+  ],
+  "longformer_finite": true,
+  "longformer_grad_finite": true,
+  "longformer_full_window_causal_equivalence": {
+    "mse": 0.0,
+    "relative_l2": 0.0,
+    "cosine_similarity": 1.0
+  },
+  "memformer_shape": [
+    1,
+    16,
+    32
+  ],
+  "memformer_finite": true,
+  "memformer_state_delta_vs_reset": 0.04052734375,
+  "status": "passed"
+}

@@ -1,0 +1,10 @@
+protocol_version: long_context_10m_v1
+result_label: parameter_screening
+method: longformer
+seed: 17
+attention: causal_left_sliding_window
+left_window: 128
+window_size: 257
+global_tokens: 0
+query_chunk_size: 256
+causal: true

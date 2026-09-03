@@ -34,7 +34,7 @@ for _dependency in ("einops", "local_attention", "axial_positional_embedding", "
 
 PERFORMER_ROOT = ROOT / "performer-pytorch"
 REFORMER_ROOT = ROOT / "reformer-pytorch"
-MEMFORMER_ROOT = ROOT / "memformers"
+MEMFORMER_ROOT = ROOT.parent / "memformers"
 _add_source(PERFORMER_ROOT)
 _add_source(REFORMER_ROOT)
 

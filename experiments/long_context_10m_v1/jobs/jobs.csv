@@ -1,0 +1,9 @@
+run_id,protocol_version,result_label,method,seed,requested_dataset,actual_dataset,split,training_tokens,trained_tokens,left_window,window_size,global_tokens,segment_length,memory_slots,status,status_reason
+b_longformer_w128_s17,long_context_10m_v1,parameter_screening,longformer,17,PG-19,synthetic_copy_stream_fallback,train,2031616,2031616,128,257,0,,,ok,implementation_smoke_only_pg19_unavailable
+b_longformer_w512_s17,long_context_10m_v1,parameter_screening,longformer,17,PG-19,synthetic_copy_stream_fallback,train,2031616,2031616,512,1025,0,,,ok,implementation_smoke_only_pg19_unavailable
+b_longformer_w1024_s17,long_context_10m_v1,parameter_screening,longformer,17,PG-19,synthetic_copy_stream_fallback,train,2031616,512,1024,2049,0,,,needs_rerun,interrupted_after_time_gate
+b_longformer_w2048_s17,long_context_10m_v1,parameter_screening,longformer,17,PG-19,,train,2031616,0,2048,4097,0,,,not_run,time_gate_and_8gb_vram_risk
+b_memformer_seg256_m64_s17,long_context_10m_v1,parameter_screening,memformer,17,PG-19,synthetic_copy_stream_fallback,train,2031616,2031616,,,,256,64,ok,implementation_smoke_only_pg19_unavailable
+b_memformer_seg512_m32_s17,long_context_10m_v1,parameter_screening,memformer,17,PG-19,synthetic_copy_stream_fallback,train,2031616,2031616,,,,512,32,ok,implementation_smoke_only_pg19_unavailable
+b_memformer_seg512_m64_s17,long_context_10m_v1,parameter_screening,memformer,17,PG-19,synthetic_copy_stream_fallback,train,2031616,2031616,,,,512,64,ok,implementation_smoke_only_pg19_unavailable
+b_memformer_seg512_m128_s17,long_context_10m_v1,parameter_screening,memformer,17,PG-19,synthetic_copy_stream_fallback,train,2031616,2031616,,,,512,128,ok,implementation_smoke_only_pg19_unavailable

@@ -29,3 +29,6 @@ $env:PYTHONPATH = (Get-Location)
 Keyformer results are already under `keyformer/results/` and `keyformer/REPORT.md`.
 
 Public repo: https://github.com/lzr20082024/26summerBDMI_transformer
+
+
+codex resume 01a062a1-0fda-75a3-8b71-c84eb36d5d17
