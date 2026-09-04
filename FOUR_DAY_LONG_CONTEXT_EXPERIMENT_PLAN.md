@@ -1,5 +1,11 @@
 # 四天长文本高效 Transformer 架构比较执行计划
 
+> **历史计划，不再作为当前执行协议。** 当前主训练数据已由 PG-19 改为
+> `roneneldan/TinyStories`，执行配置见
+> `experiments/tinystories_tinylm_v1/protocol.yaml`，设置决策与待讨论问题见
+> `TINYLM_EXPERIMENT_QA.md`。下文保留用于追溯既有 PG-19 设计与历史结果，
+> 不应据此启动新的 PG-19 训练。
+
 > 版本：`long_context_10m_v1`  
 > 日期：2026-09-03  
 > 适用硬件：RTX 4090 24GB 或更高；推荐 4 张同型号 GPU  

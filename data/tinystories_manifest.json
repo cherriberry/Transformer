@@ -1,0 +1,102 @@
+{
+  "created_at_utc": "2026-09-03T18:17:20.401578+00:00",
+  "source_endpoint": "https://hf-mirror.com",
+  "dataset": {
+    "id": "roneneldan/TinyStories",
+    "revision": "f54c09fd23315a6f9c86f9dc80f725de7d8f9c64",
+    "license": "cdla-sharing-1.0",
+    "splits": {
+      "train": {
+        "rows": 2119719
+      },
+      "validation": {
+        "rows": 21990
+      }
+    },
+    "columns": [
+      "text"
+    ],
+    "files": [
+      {
+        "path": "data/raw/tinystories/.gitattributes",
+        "bytes": 2759,
+        "sha256": "f63312236312d1f782685911a726186ceb455963a3889cfbdcc0c466c13945e3"
+      },
+      {
+        "path": "data/raw/tinystories/README.md",
+        "bytes": 1061,
+        "sha256": "f67b71c3ffe761795b9428222444bfc1ec447d45cb13b00821b7e6c1ceecf7c5"
+      },
+      {
+        "path": "data/raw/tinystories/data/train-00000-of-00004-2d5a1467fff1081b.parquet",
+        "bytes": 248731111,
+        "sha256": "77cf780cebe52b6e83e3a2ac84bc56d8059363113e41d17a023f1d8b2ed0fc0b"
+      },
+      {
+        "path": "data/raw/tinystories/data/train-00001-of-00004-5852b56a2bd28fd9.parquet",
+        "bytes": 248171980,
+        "sha256": "e2f173a6dcc2b5895183e8ad376e115bd5c06764eb0cfc01ce1add156b2d017f"
+      },
+      {
+        "path": "data/raw/tinystories/data/train-00002-of-00004-a26307300439e943.parquet",
+        "bytes": 245894874,
+        "sha256": "cac73cd1a0973a7fccde022a5a5c78f8ba58ea6849541835c58e7c5fc747f2ef"
+      },
+      {
+        "path": "data/raw/tinystories/data/train-00003-of-00004-d243063613e5a057.parquet",
+        "bytes": 247988350,
+        "sha256": "862514ae75723ddd339337f1ef7617b88f82290dcddd57445e1d38d257ca7891"
+      },
+      {
+        "path": "data/raw/tinystories/data/validation-00000-of-00001-869c898b519ad725.parquet",
+        "bytes": 9989127,
+        "sha256": "33406a6206554cfc279c29c11f4df51528af487aa1a602b075566fc83c49dcab"
+      }
+    ]
+  },
+  "tokenizer": {
+    "id": "openai-community/gpt2",
+    "revision": "607a30d783dfa663caf39e06633721c8d4cfcd7e",
+    "vocab_size": 50257,
+    "eos_token_id": 50256,
+    "pad_token_id": null,
+    "files": [
+      {
+        "path": "data/tokenizer/gpt2/config.json",
+        "bytes": 665,
+        "sha256": "0daed7749b4f02b8f76240d5444551d7b08712dab4d0adb8239c56ba823bb7b4"
+      },
+      {
+        "path": "data/tokenizer/gpt2/merges.txt",
+        "bytes": 456318,
+        "sha256": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5"
+      },
+      {
+        "path": "data/tokenizer/gpt2/tokenizer.json",
+        "bytes": 1355256,
+        "sha256": "8414cab924d8b9b33013f0d221c5862f365ee9be39c5c2bfae8a5a9e970478a6"
+      },
+      {
+        "path": "data/tokenizer/gpt2/tokenizer_config.json",
+        "bytes": 26,
+        "sha256": "5e04eb606e3a1583530a42e36c2a6b6615c86f34fe77e44d9ddeb43ff940931f"
+      },
+      {
+        "path": "data/tokenizer/gpt2/vocab.json",
+        "bytes": 1042301,
+        "sha256": "196139668be63f3b5d6574427317ae82f612a97c5d1cdaf36ed2256dbf636783"
+      }
+    ]
+  },
+  "environment": {
+    "python": "3.12.3",
+    "datasets": "4.8.5",
+    "transformers": "5.16.1",
+    "huggingface_hub": "1.30.0"
+  },
+  "notes": [
+    "TinyStories has no official test split.",
+    "No GPT-2 model weights were downloaded.",
+    "Packing and evaluation split policy are intentionally not frozen yet."
+  ]
+}

@@ -1,0 +1,241 @@
+protocol_version: tinystories_tinylm_v1
+execution_profile: three_day_validation_screening_v1
+status: time_boxed_draft_not_final_main_experiment
+
+# This profile is intended to produce a comparable validation result for all
+# six requested frameworks within three days. It is not a paper-scale final
+# training protocol.
+comparison_methods:
+  trainable_backbones:
+    - longformer
+    - performer
+    - linformer
+    - reformer
+    - memformer
+  inference_policy:
+    - keyformer
+  reference:
+    - full_attention
+  shared_reference_training:
+    required: true
+    checkpoint_name: full_attention_tinylm_tinystories_v1
+    token_budget: 10000000
+    owner: person_c
+
+hardware:
+  recommended_gpu: NVIDIA RTX 4090 24GB or better
+  minimum_gpu: 16GB VRAM
+  execution_mode: three_independent_gpu_workers_parallel
+  gpu_allocation:
+    workers: 3
+    per_worker_gpu: 1
+    assignment: person_a_person_b_person_c_each_use_one_rtx4090
+    same_host_visibility: use_distinct_CUDA_VISIBLE_DEVICES
+    separate_host_visibility: each_worker_uses_cuda_0
+  shared_data_cache: read_only_after_preparation
+  per_worker_output_directory: required
+  fallback_mode: shared_gpu_sequential_runs_allowed
+  device: cuda:0
+  dtype: bfloat16
+  tf32: false
+  matmul_precision: high
+
+dataset:
+  id: roneneldan/TinyStories
+  revision: f54c09fd23315a6f9c86f9dc80f725de7d8f9c64
+  local_path: data/raw/tinystories
+  train_rows: 2119719
+  validation_rows: 21990
+  text_field: text
+  tokenizer:
+    id: openai-community/gpt2
+    revision: 607a30d783dfa663caf39e06633721c8d4cfcd7e
+    local_path: data/tokenizer/gpt2
+    vocab_size: 50257
+    eos_token_id: 50256
+  preprocessing:
+    add_eos_at_document_end: true
+    document_order: pinned_parquet_order
+    cross_document_packing: true
+    packing_block_tokens: 512
+    cross_document_attention: allowed_after_eos
+    loss_mask: all_packed_tokens
+    padding: none
+    train_token_cap: 10000000
+    validation_scope: full_validation_stream
+    validation_token_count_observed: 4765918
+    validation_probe_tokens: 262144
+  split_policy:
+    train: train_only
+    validation: validation_only_for_checkpoint_selection_and_reporting
+    test: unavailable_no_official_tinystories_test
+    synthetic_memory_data: separate_from_tinystories_quality_table
+
+model:
+  family: TinyLM-long-v1
+  architecture: decoder_only_causal_lm
+  initialization: from_scratch_with_matched_common_state
+  vocab_size: 50257
+  layers: 6
+  hidden_size: 384
+  heads: 8
+  head_dim: 48
+  ffn_size: 1536
+  activation: GELU
+  normalization: Pre-LN
+  position_encoding: RoPE
+  rope_max_position: 32768
+  dropout: 0.1
+  attention_dropout: 0.0
+  tie_input_output_embeddings: true
+  use_bias: false
+  linear_bias: false
+  layernorm_affine: true
+  layernorm_bias: true
+  causal: true
+  expected_common_parameter_count: 29925504
+  expected_common_parameter_count_without_layernorm_bias: 29920512
+  parameter_matching: common_backbone_primary_report_method_specific_parameters
+
+training:
+  optimizer: AdamW
+  learning_rate: 0.0003
+  betas: [0.9, 0.95]
+  epsilon: 0.00000001
+  weight_decay: 0.1
+  warmup_ratio: 0.03
+  lr_schedule: cosine
+  minimum_learning_rate: 0.00003
+  gradient_clip_norm: 1.0
+  train_context: 512
+  effective_batch_tokens: 8192
+  micro_batch_sequences: 4
+  gradient_accumulation_steps: 4
+  fallback_micro_batch_sequences: 2
+  fallback_gradient_accumulation_steps: 8
+  pilot_tokens_per_candidate: 1048576
+  main_tokens: 10000000
+  required_seeds: [17]
+  optional_seeds: [29]
+  deferred_seeds: [43]
+  validation_interval_tokens: 1048576
+  checkpoint_interval_tokens: 1048576
+  full_validation: final_checkpoint_only
+  validation_during_training: fixed_probe_only
+  final_validation: full_validation_stream_for_last_and_best_probe_checkpoint
+  early_stopping: false
+  loss_accumulation_dtype: float32
+
+method_configs:
+  longformer:
+    implementation: causal_left_sliding_window
+    left_window_candidates: [128, 256]
+    main_left_window: 128
+    global_tokens: 0
+    total_window_size: 257
+    query_chunk_size: 128
+  performer:
+    implementation: causal_favor_plus
+    feature_candidates: [64, 128]
+    main_features: 128
+    redraw_features: false
+  linformer:
+    implementation: causal_learned_sequence_projection
+    rank_candidates: [64, 128]
+    main_rank: 128
+    projection_length_policy: fixed_to_train_context
+  reformer:
+    implementation: causal_lsh_attention
+    bucket_size_candidates: [32, 64]
+    main_bucket_size: 64
+    n_hashes: 4
+    reversible: false
+    require_bucket_padding_mask: true
+  memformer:
+    implementation: causal_recurrent_memory
+    candidates:
+      - {segment_length: 128, memory_slots: 32}
+      - {segment_length: 128, memory_slots: 64}
+    main_segment_length: 128
+    main_memory_slots: 64
+    detach_memory_between_segments: false
+    reset_memory_between_packed_examples: true
+  keyformer:
+    implementation: original_inference_time_kv_cache_policy
+    backbone_checkpoint: full_attention_tinylm_checkpoint
+    cache_ratio_candidates: [0.5, 0.75, 1.0]
+    recent_ratio: 0.5
+    tau_init: 1.0
+    tau_delta: 0.01
+    gumbel_noise: true
+    training_tokens: 0
+    note: >-
+      Keyformer is not independently trained. It is evaluated on the same
+      TinyLM Full-Attention checkpoint during sequential validation/decode.
+
+screening:
+  selection_order:
+    - correctness
+    - finite_loss_and_gradients
+    - validation_nll_after_pilot
+    - throughput_if_validation_nll_within_5_percent
+    - peak_memory_if_throughput_within_10_percent
+  freeze_before_main_run: true
+  no_posthoc_configuration_selection: true
+  fallback_if_run_exceeds_time_cap: reduce_main_tokens_to_5000000_and_record_deviation
+  per_model_wall_time_cap_hours: 6
+
+evaluation:
+  required_context_lengths: [512]
+  optional_context_lengths: [1024]
+  optional_context_policy: native_length_support_only
+  linformer_length_note: >-
+    A projection trained for length 512 is not evaluated at 1024 unless a
+    predeclared interpolation or separate projection is implemented and labeled.
+  validation_metric: token_weighted_causal_nll
+  derived_metric: perplexity
+  validation_scope: fixed_probe_during_training_full_stream_at_final
+  validation_probe_tokens: 262144
+  validation_batch_sequences: 8
+  latency_batch_sequences: 1
+  latency_warmup_runs: 10
+  latency_timed_runs: 30
+  report:
+    - train_loss_curve
+    - validation_probe_curve
+    - final_validation_nll
+    - final_validation_ppl
+    - best_validation_nll
+    - tokens_per_second
+    - step_time
+    - prefill_latency
+    - decode_latency_when_applicable
+    - peak_allocated_memory
+    - peak_reserved_memory
+    - method_specific_state_bytes
+    - parameter_count
+    - oom_or_failure_boundary
+  optional_mechanism_task:
+    name: minimal_cross_segment_copy_or_passkey
+    required_for: memformer_and_innovation_follow_up_only
+    excluded_from_tinystories_quality_ranking: true
+
+correctness:
+  require_shape_and_dtype: true
+  require_causal_future_invariance: true
+  require_finite_loss_and_gradients: true
+  require_padding_or_bucket_mask_check: true
+  require_full_window_equivalence_when_applicable: true
+  require_memory_reset_for_memformer: true
+  require_fullkv_equivalence_for_keyformer_at_ratio_1: true
+  require_rope_position_preservation_for_keyformer: true
+
+audit:
+  save_resolved_config: true
+  save_environment: true
+  save_raw_metrics: true
+  save_training_and_validation_curves: true
+  save_failure_and_oom_records: true
+  require_data_manifest_hash: true
+  require_config_hash: true
+  validation_only_no_test_claim: true

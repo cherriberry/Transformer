@@ -1,5 +1,16 @@
 # Project overview
 
+## Active TinyLM experiment
+
+The active training-data protocol is now
+`experiments/tinystories_tinylm_v1/protocol.yaml`: a from-scratch causal
+`TinyLM-long-v1` trained on pinned `roneneldan/TinyStories` data. See
+`TINYLM_EXPERIMENT_QA.md` for decisions and open experiment questions.
+
+PG-19 is no longer part of the active experiment. The existing
+`long_context_10m_v1` files and results are retained only as historical
+provenance and must not be relabeled as TinyStories results.
+
 Course study of efficient Transformer variants. Each method has its own folder:
 
 | Dir | Method | Owner focus |

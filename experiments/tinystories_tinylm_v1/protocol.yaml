@@ -1,0 +1,220 @@
+protocol_version: tinystories_tinylm_v1
+protocol_status: draft_time_boxed_validation_screening
+execution_profile: three_day_validation_screening_v1
+execution_profile_file: experiments/tinystories_tinylm_v1/three_day_validation_screening.yaml
+hardware_profile:
+  gpu_count: 3
+  gpu_model: NVIDIA RTX 4090 24GB
+  execution_mode: parallel_one_gpu_per_person
+objective: >-
+  Compare attention and memory mechanisms under one causal TinyLM backbone,
+  one TinyStories data order, equal training-token budgets, and matched seeds.
+
+three_day_comparison_scope:
+  trainable_backbones: [longformer, performer, linformer, reformer, memformer]
+  inference_policy: [keyformer]
+  shared_reference: full_attention
+  assignment:
+    person_a: [linformer, performer]
+    person_b: [longformer, reformer]
+    person_c: [memformer, keyformer]
+
+dataset:
+  primary: roneneldan/TinyStories
+  revision: f54c09fd23315a6f9c86f9dc80f725de7d8f9c64
+  local_path: data/raw/tinystories
+  available_splits: [train, validation]
+  text_field: text
+  language: en
+  license: cdla-sharing-1.0
+  add_eos_at_document_end: true
+  cross_document_packing: true
+  packing_block_tokens: 512
+  cross_document_attention: allowed_after_eos
+  test_policy: no_official_test_split_validation_only_for_this_screening
+  synthetic_fallback: forbidden_for_quality_results
+
+tokenizer:
+  model_id: openai-community/gpt2
+  revision: 607a30d783dfa663caf39e06633721c8d4cfcd7e
+  local_path: data/tokenizer/gpt2
+  vocab_size: 50257
+  download_model_weights: false
+
+model:
+  family: TinyLM-long-v1
+  architecture: decoder_only_causal_lm
+  initialization: from_scratch_matched_state_dict
+  vocab_size: 50257
+  layers: 6
+  hidden_size: 384
+  heads: 8
+  head_dim: 48
+  ffn_size: 1536
+  activation: GELU
+  normalization: Pre-LN
+  position_encoding: RoPE
+  rope_max_position: 32768
+  dropout: 0.1
+  attention_dropout: 0.0
+  tie_input_output_embeddings: true
+  use_bias: false
+  linear_bias: false
+  layernorm_affine: true
+  layernorm_bias: true
+  causal: true
+  expected_common_parameter_count: 29925504
+  expected_common_parameter_count_without_layernorm_bias: 29920512
+  parameter_matching: common_backbone_primary_report_method_specific_parameters
+
+proposed_architecture:
+  status: draft
+  research_position: content_driven_dynamic_capacity_extension_of_memformer
+  short_term_path: exact_causal_sliding_window
+  long_term_representation: topic_addressable_compressed_key_value_slots
+  history_semantics: recurrent_path_over_full_document_not_lossless_raw_access
+  memory_capacity: fixed_maximum_with_dynamic_active_slots
+  write_policy: learned_segment_level_gate
+  retention_policy: content_value_conflict_and_capacity_aware_slot_gate
+  read_policy: learned_segment_level_gate
+  fusion_policy: learned_local_memory_gate
+  decision_signal: content_and_memory_state_not_length_only
+  dynamic_capacity: active_slot_count_within_fixed_maximum
+  memory_scope: single_conversation_episodic_state
+  state_lifecycle:
+    initialize: conversation_start
+    persist: across_ordered_turns_and_segments
+    reset: conversation_end_or_new_conversation
+    cross_conversation_persistence: false
+    cross_sample_leakage: forbidden
+  memory_metadata: [age, last_access, access_count, confidence, conflict]
+  memory_pools:
+    user_episodic:
+      capacity: fixed_maximum
+      active_slots: content_driven_dynamic
+      content: user_provided_or_user_confirmed_atomic_facts
+      research_role: primary
+    assistant_state:
+      capacity: small_fixed
+      active_slots: fixed_semantic_roles
+      content: plans_commitments_and_mutually_confirmed_conclusions
+      candidate_slots: [current_goal, agreed_constraints, pending_actions, assistant_commitments]
+      v1_status: frozen
+      research_role: engineering_support_not_dynamic_memory_claim
+  exact_detail_payload: deferred_pending_vector_slot_recall_results
+  topic_detection:
+    inference_topic_labels: forbidden
+    mechanism: learned_semantic_key_matching
+    current_key_source: pooled_turn_or_segment_representation
+    existing_topic_match: update_and_reactivate_relevant_slots
+    novel_topic_match: allocate_merge_or_evict
+    generator_labels: evaluation_and_oracle_upper_bound_only
+  memory_update_timing:
+    round_definition: one_user_message_followed_by_one_completed_assistant_response
+    default_boundary: completed_user_assistant_round
+    within_round: temporary_candidate_buffer
+    round_end: consolidate_zero_or_more_atomic_facts_into_persistent_slots_once
+    activation_time: committed_memory_is_readable_from_next_round
+    no_op_write: allowed_and_should_skip_compute
+    overlong_turn: sentence_boundary_preferred_with_fixed_token_limit_fallback
+    causal_rule: committed_memory_only_affects_later_turns
+    source_role_metadata: required
+    assistant_memory_policy: dedicated_fixed_slots_confirmed
+  performer_branch: deferred_until_minimal_memory_prototype_is_validated
+  candidate_innovations:
+    core: dynamic_active_slots_and_explicit_slot_survival
+    next: joint_local_window_and_long_term_memory_budget
+    training: counterfactual_memory_need_distillation
+    evaluation: matched_length_variable_memory_demand_pairs
+    deferred:
+      - performer_branch
+      - multi_tier_memory
+      - dynamic_segmentation
+      - budget_conditioned_single_checkpoint
+
+required_baselines:
+  - full_attention_quality_upper_bound
+  - fixed_causal_sliding_window
+  - performer_fixed_feature_summary
+  - linformer_fixed_rank_projection
+  - reformer_causal_lsh_attention
+  - memformer_fixed_slots_always_compute
+  - keyformer_inference_time_kv_cache_policy
+  - proposed_dynamic_active_slot_memory
+
+baseline_memory_source_policy:
+  memformer: all_history_without_explicit_source_control
+  proposed: dynamic_user_fact_slots_plus_fixed_assistant_state_slots
+
+required_ablations:
+  - fixed_slots_without_gates
+  - soft_gates_without_physical_compute_skipping
+  - hard_gates_with_active_slot_packing
+  - length_only_controller
+  - content_and_memory_state_controller
+  - no_assistant_state_memory
+  - fixed_assistant_state_slots
+  - shared_user_and_assistant_dynamic_slots
+
+required_state_tests:
+  - reset_at_new_conversation
+  - no_cross_sample_memory_leakage
+  - state_follows_conversation_on_batch_reorder
+  - detach_preserves_forward_memory
+
+training:
+  optimizer: AdamW
+  learning_rate: 0.0003
+  betas: [0.9, 0.95]
+  epsilon: 0.00000001
+  weight_decay: 0.1
+  warmup_ratio: 0.03
+  lr_schedule: cosine
+  gradient_clip_norm: 1.0
+  dtype: bfloat16
+  seeds: [17, 29, 43]
+  train_context: 512
+  effective_batch_tokens: 8192
+  pilot_tokens: 1048576
+  main_tokens: 10000000
+  main_token_scope: per_trainable_backbone_and_shared_reference
+  required_screening_seed: 17
+  optional_screening_seed: 29
+
+evaluation:
+  primary_metric: token_weighted_causal_nll
+  derived_metric: perplexity
+  primary_memory_task: topic_switch_delayed_dialogue_detail_recall
+  primary_memory_metric: exact_match_accuracy
+  memory_task_factors:
+    topic_count: [1, 2, 4, 8]
+    facts_per_topic: [1, 2, 4]
+    delay_segments: [1, 2, 4, 8, 16]
+    detail_types: [name, preference, number, date, location, event]
+    distractor_types: [unrelated_topic, similar_entity, conflicting_fact]
+    return_cues: [verbatim, paraphrase, entity_only]
+    query_timing: [instructed_early, revealed_at_end]
+    matched_total_length: true
+  report_throughput: true
+  report_peak_memory: true
+  context_lengths: [512]
+  optional_context_lengths: [1024]
+  memory_diagnostics:
+    - active_slot_count
+    - read_gate_rate
+    - write_gate_rate
+    - slot_retention_duration
+    - gate_distribution_by_input_length
+    - gate_distribution_by_dependency_type
+    - active_slot_count_at_matched_sequence_length
+    - topic_return_recall_at_k
+    - wrong_slot_read_rate
+    - unnecessary_new_slot_rate
+
+audit:
+  data_manifest: data/tinystories_manifest.json
+  save_resolved_config: true
+  save_environment: true
+  save_raw_metrics: true
+  require_config_hash: true
+  require_data_checksums: true

@@ -1,5 +1,9 @@
 # B-role pilot configuration: `long_context_10m_v1`
 
+> Historical protocol: PG-19 is no longer used for new training. The active
+> dataset protocol is `../tinystories_tinylm_v1/protocol.yaml`. Existing runs
+> remain here under their original PG-19-requested/synthetic-fallback labels.
+
 This directory freezes the 10M-token protocol for the Longformer and Memformer
 workstream. The current execution target is **pilot/screening only**: each
 candidate receives 2,031,616 training tokens with seed 17. The 10,027,008-token
