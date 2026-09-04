@@ -3,6 +3,10 @@
 版本：`three_day_validation_screening_v1`  
 性质：时间受限的可比验证集筛选，不是最终论文级主实验
 
+执行记录：B 角色（Longformer + Memformer）已完成；结果见根目录
+`PERSON_B_TINYLM_REPORT.md`，原始记录见本目录 `aggregate/` 与
+`runs/person_b/`。
+
 ## 1. 实验目标
 
 三天内让六个指定框架都留下可追溯、可比较的结果：
@@ -129,8 +133,8 @@
 | 人员 | 模型 | 共享主题 | 额外交付 |
 |---|---|---|---|
 | A | Linformer + Performer | 近似计算与 rank/features | 两模型完整 train/validation、fidelity/近似误差、质量和效率 |
-| B | Longformer + Reformer | 稀疏连接与长度开销 | 两模型 causal mask、bucket/window 正确性、质量和效率 |
-| C | Memformer + Keyformer | 有限历史状态压缩 | Memformer 跨 segment 验证；Keyformer FullKV 等价、cache sweep；合并 schema |
+| B | Longformer + Memformer | 长上下文信息保留：局部窗口与跨 segment recurrent memory | 两模型 causal/state 正确性、质量、长度/记忆容量曲线、延迟和显存 |
+| C | Reformer + Keyformer | 历史 token 的选择与压缩：LSH 稀疏连接与 KV-cache 淘汰 | Reformer bucket/hash 正确性；Keyformer FullKV 等价、cache sweep；合并 schema |
 
 每个人对两个模型承担完整闭环，不能只负责某个指标。C 的“合并 schema”是协调职责，不改变其两个模型的实验责任。
 
@@ -143,7 +147,7 @@
 | 第 1 天 0–2h | 安装依赖、检查 manifest、生成/缓存 train 10M 与 validation token stream | 各自复制 frozen baseline，确认设备和 dtype |
 | 第 1 天 2–6h | 六个 adapter 完成 forward/backward、causal 和 reset smoke | A/B/C 各自处理两个框架的接口问题 |
 | 第 1 天 6–10h | 运行 pilot 候选（每候选约 1M tokens） | 冻结各模型主配置，保存选择依据 |
-| 第 2 天 0–8h | 启动 main 10M-token 训练；完成 Full-Attention reference 后启动 Keyformer shared-checkpoint eval | A/B 在各自 GPU 上跑两个模型；C 在同一 GPU 上先跑 reference，再跑 Memformer/Keyformer |
+| 第 2 天 0–8h | 启动 main 10M-token 训练；完成 Full-Attention reference 后启动 Keyformer shared-checkpoint eval | A/B 在各自 GPU 上跑两个模型；C 在同一 GPU 上先跑 reference，再跑 Reformer/Keyformer |
 | 第 2 天 8–12h | 检查训练/validation 曲线，修复可重复性问题 | 必须保留失败 run，不静默替换配置 |
 | 第 3 天 0–6h | 对最后/最佳 probe checkpoint 完成 full validation、latency、memory 和 OOM 矩阵 | 补跑 seed29 或关键长度（按剩余时间） |
 | 第 3 天 6–10h | 自动生成表格、曲线、方法卡片和局限说明 | 每人提交两个模型的 raw JSON、README、结论 |

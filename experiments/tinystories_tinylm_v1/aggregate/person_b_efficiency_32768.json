@@ -1,0 +1,157 @@
+{
+  "protocol_version": "tinystories_tinylm_v1",
+  "execution_profile": "three_day_validation_screening_v1",
+  "role": "person_b",
+  "benchmark_type": "frozen_checkpoint_forward_efficiency",
+  "quality_claim": "none_efficiency_only",
+  "configuration": {
+    "lengths": [
+      32768
+    ],
+    "warmup_runs": 0,
+    "timed_runs": 1,
+    "batch_sequences": 1,
+    "context_trained": 512,
+    "full_reference_weight_source": "main_b_longformer_w128_s17 common state",
+    "model_config": {
+      "vocab_size": 50257,
+      "layers": 6,
+      "hidden_size": 384,
+      "heads": 8,
+      "ffn_size": 1536,
+      "context": 512,
+      "rope_max_position": 32768,
+      "dropout": 0.1,
+      "longformer_query_chunk": 128,
+      "memformer_segment_length": 128
+    }
+  },
+  "environment": {
+    "created_at_utc": "2026-09-04T11:18:47.886404+00:00",
+    "python": "3.12.3",
+    "platform": "Linux-5.15.0-78-generic-x86_64-with-glibc2.35",
+    "torch": "2.12.1+cu130",
+    "cuda_runtime": "13.0",
+    "numpy": "2.4.6",
+    "device": "cuda:0",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "gpu_total_memory_bytes": 25250627584,
+    "gpu_compute_capability": [
+      8,
+      9
+    ],
+    "bf16_supported": true
+  },
+  "records": [
+    {
+      "method": "longformer",
+      "sequence_length": 32768,
+      "batch_sequences": 1,
+      "dtype": "bfloat16",
+      "source_checkpoint": "experiments/tinystories_tinylm_v1/runs/person_b/main_b_longformer_w128_s17/checkpoint.tokens_10000000.pt",
+      "method_config": {
+        "left_window": 128,
+        "total_window_size": 257,
+        "global_tokens": 0,
+        "causal_max_visible_tokens": 129
+      },
+      "parameter_record": {
+        "total_parameters": 29925504,
+        "trainable_parameters": 29925504,
+        "attention_parameters": 3538944,
+        "fp32_parameter_bytes": 119702016,
+        "bf16_parameter_bytes": 59851008
+      },
+      "config_hash": "2e6ef1cce54e85516b9e40290692c0e84b57d713eab8343a42b2272e4a38d49e",
+      "status": "ok",
+      "output_shape": [
+        1,
+        32768,
+        50257
+      ],
+      "output_finite": true,
+      "median_latency_seconds": 0.7386689453125,
+      "mean_latency_seconds": 0.7386689453125,
+      "stdev_latency_seconds": 0.0,
+      "tokens_per_second": 44360.873985486454,
+      "timed_samples_seconds": [
+        0.7386689453125
+      ],
+      "peak_allocated_bytes": 7121796608,
+      "peak_reserved_bytes": 8090812416
+    },
+    {
+      "method": "memformer",
+      "sequence_length": 32768,
+      "batch_sequences": 1,
+      "dtype": "bfloat16",
+      "source_checkpoint": "experiments/tinystories_tinylm_v1/runs/person_b/main_b_memformer_s128_m64_s17/checkpoint.tokens_10000000.pt",
+      "method_config": {
+        "segment_length": 128,
+        "memory_slots": 64,
+        "detach_memory_between_segments": false,
+        "state_bytes_bf16_batch1": 294912
+      },
+      "parameter_record": {
+        "total_parameters": 33466752,
+        "trainable_parameters": 33466752,
+        "attention_parameters": 7080192,
+        "fp32_parameter_bytes": 133867008,
+        "bf16_parameter_bytes": 66933504
+      },
+      "config_hash": "e99af9a6e5df15c7c80b640242b6f3f409d0ec0f1531903fe75d62ffb6bcd69b",
+      "status": "ok",
+      "output_shape": [
+        1,
+        32768,
+        50257
+      ],
+      "output_finite": true,
+      "median_latency_seconds": 1.33495263671875,
+      "mean_latency_seconds": 1.33495263671875,
+      "stdev_latency_seconds": 0.0,
+      "tokens_per_second": 24546.189204541504,
+      "timed_samples_seconds": [
+        1.33495263671875
+      ],
+      "peak_allocated_bytes": 7121894912,
+      "peak_reserved_bytes": 7648313344
+    },
+    {
+      "method": "full_attention_reference",
+      "sequence_length": 32768,
+      "batch_sequences": 1,
+      "dtype": "bfloat16",
+      "source_checkpoint": "experiments/tinystories_tinylm_v1/runs/person_b/main_b_longformer_w128_s17/checkpoint.tokens_10000000.pt",
+      "method_config": {
+        "reference": "full_attention",
+        "global_tokens": 0
+      },
+      "parameter_record": {
+        "total_parameters": 29925504,
+        "trainable_parameters": 29925504,
+        "attention_parameters": 3538944,
+        "fp32_parameter_bytes": 119702016,
+        "bf16_parameter_bytes": 59851008
+      },
+      "config_hash": "c56d7f05064be6bfcd4918d01bc0e6beb3ad920c31259210adedcbcfb83dd685",
+      "status": "ok",
+      "output_shape": [
+        1,
+        32768,
+        50257
+      ],
+      "output_finite": true,
+      "median_latency_seconds": 0.3633072509765625,
+      "mean_latency_seconds": 0.3633072509765625,
+      "stdev_latency_seconds": 0.0,
+      "tokens_per_second": 90193.63063060338,
+      "timed_samples_seconds": [
+        0.3633072509765625
+      ],
+      "peak_allocated_bytes": 7121796608,
+      "peak_reserved_bytes": 7916748800
+    }
+  ],
+  "created_at_utc": "2026-09-04T11:18:47Z"
+}

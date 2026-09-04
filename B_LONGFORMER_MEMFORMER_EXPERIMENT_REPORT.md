@@ -1,5 +1,10 @@
 # B 角色实验总结报告：Longformer 与 Memformer
 
+> 历史 attention-level / synthetic-pilot 报告。B 角色在统一 TinyStories
+> validation screening 中的正式记录已更新为
+> [PERSON_B_TINYLM_REPORT.md](PERSON_B_TINYLM_REPORT.md)；本文件中的旧配置和
+> 数值不得与新报告混合使用。
+
 日期：2026-09-02  
 项目：高效 Transformer 统一结构与三人分工  
 证据标签：`paper_reported`、`paper_aligned`、`matched_tinylm`、`innovation_validation`

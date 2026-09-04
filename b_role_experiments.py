@@ -85,28 +85,39 @@ class MemformerSegmentAttention(nn.Module):
     state is returned to the caller and can be detached between segments.
     """
     def __init__(self, dim: int, heads: int = 8, memory_slots: int = 64,
-                 causal: bool = True, detach_memory: bool = True):
+                 causal: bool = True, detach_memory: bool = True,
+                 bias: bool = True):
         super().__init__()
         if dim % heads:
             raise ValueError("dim must be divisible by heads")
         self.dim, self.heads, self.head_dim = dim, heads, dim // heads
         self.memory_slots, self.causal, self.detach_memory = memory_slots, causal, detach_memory
-        self.q_proj = nn.Linear(dim, dim)
-        self.k_proj = nn.Linear(dim, dim)
-        self.v_proj = nn.Linear(dim, dim)
-        self.out_proj = nn.Linear(dim, dim)
-        self.mem_q_proj = nn.Linear(dim, dim)
-        self.mem_k_proj = nn.Linear(dim, dim)
-        self.mem_v_proj = nn.Linear(dim, dim)
-        self.mem_out_proj = nn.Linear(dim, dim)
-        self.gate = nn.Linear(dim, 1)
+        self.q_proj = nn.Linear(dim, dim, bias=bias)
+        self.k_proj = nn.Linear(dim, dim, bias=bias)
+        self.v_proj = nn.Linear(dim, dim, bias=bias)
+        self.out_proj = nn.Linear(dim, dim, bias=bias)
+        self.mem_q_proj = nn.Linear(dim, dim, bias=bias)
+        self.mem_k_proj = nn.Linear(dim, dim, bias=bias)
+        self.mem_v_proj = nn.Linear(dim, dim, bias=bias)
+        self.mem_out_proj = nn.Linear(dim, dim, bias=bias)
+        self.gate = nn.Linear(dim, 1, bias=bias)
 
-    def forward_segment(self, x: torch.Tensor, memory: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward_segment(
+        self,
+        x: torch.Tensor,
+        memory: torch.Tensor,
+        rotary_emb: object | None = None,
+        position_ids: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         b, n, _ = x.shape
         s, h, d = self.memory_slots, self.heads, self.head_dim
         qx = self.q_proj(x).view(b, n, h, d).transpose(1, 2)
         kx = self.k_proj(x).view(b, n, h, d).transpose(1, 2)
         vx = self.v_proj(x).view(b, n, h, d).transpose(1, 2)
+        if rotary_emb is not None:
+            if position_ids is None:
+                position_ids = torch.arange(n, device=x.device)
+            qx, kx = rotary_emb.apply_qk(qx, kx, position_ids)
         qm = self.mem_q_proj(memory).view(b, s, h, d).transpose(1, 2)
         km = self.mem_k_proj(memory).view(b, s, h, d).transpose(1, 2)
         vm = self.mem_v_proj(memory).view(b, s, h, d).transpose(1, 2)
@@ -135,14 +146,31 @@ class MemformerSegmentAttention(nn.Module):
             mem_new = mem_new.detach()
         return out, mem_new
 
-    def forward(self, x: torch.Tensor, segment_length: int = 256,
-                memory: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self,
+        x: torch.Tensor,
+        segment_length: int = 256,
+        memory: torch.Tensor | None = None,
+        rotary_emb: object | None = None,
+        position_offset: int = 0,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         b = x.shape[0]
         if memory is None:
             memory = torch.zeros(b, self.memory_slots, self.dim, device=x.device, dtype=x.dtype)
         outputs = []
         for start in range(0, x.shape[1], segment_length):
-            out, memory = self.forward_segment(x[:, start:start + segment_length], memory)
+            segment = x[:, start:start + segment_length]
+            positions = torch.arange(
+                position_offset + start,
+                position_offset + start + segment.shape[1],
+                device=x.device,
+            )
+            out, memory = self.forward_segment(
+                segment,
+                memory,
+                rotary_emb=rotary_emb,
+                position_ids=positions,
+            )
             outputs.append(out)
         return torch.cat(outputs, dim=1), memory
 

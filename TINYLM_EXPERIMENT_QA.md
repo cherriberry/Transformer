@@ -721,10 +721,10 @@ TinyStories 单篇故事偏短，不能单独充分揭示长距离差异；需�
 | 人员 | 负责框架 | 共同研究主题 | 最低交付 |
 |---|---|---|---|
 | A | Linformer + Performer | 低秩投影与随机特征近似：近似误差、容量参数和长度扩展 | 两个模型的 TinyLM/TinyStories pilot、正确性、质量、延迟、显存和至少一项容量消融 |
-| B | Longformer + Reformer | 结构化稀疏连接：局部窗口与 LSH 候选的质量—效率取舍 | 两个模型的 causal mask/稀疏正确性、质量、长度—稀疏参数曲线、延迟、显存和 OOM 记录 |
-| C | Memformer + Keyformer | 历史状态或 KV cache 压缩：固定 recurrent memory 与 token 级 cache 选择 | Memformer 的跨 segment state、Keyformer 的 FullKV 等价/预算测试，以及两者各自的质量和效率结果 |
+| B | Longformer + Memformer | 长上下文信息保留：固定局部窗口与跨 segment recurrent memory | 两个模型的 causal/state 正确性、TinyLM/TinyStories 质量、容量曲线、延迟、显存和 OOM 记录 |
+| C | Reformer + Keyformer | 历史 token 选择：LSH 稀疏连接与推理期 KV-cache 淘汰 | Reformer 的 bucket/hash 正确性；Keyformer 的 FullKV 等价/预算测试，以及两者各自的质量和效率结果 |
 
-该分组的理由是：A 的两个方法都用近似计算替代 dense attention，便于复用同一套 fidelity 和 feature/rank 消融；B 的两个方法都改变 token 连接图，便于统一测试 causal 稀疏 mask、长度扩展和不规则访问开销；C 的两个方法都围绕“有限状态保存历史”，但必须明确 Memformer 是训练/跨 segment memory，Keyformer 是推理期 KV-cache policy，不能把二者混成同一种架构或直接合并成单一排行榜。Keyformer 仍使用统一 TinyLM/Full-Attention checkpoint 做 cache 压缩评估，而不是强行改造成原始论文没有的训练 backbone。
+调整后的分组理由是：A 的两个方法都用近似计算替代 dense attention，便于复用同一套 fidelity 和 feature/rank 消融；B 直接比较固定局部窗口与固定容量 recurrent memory，回答两种长历史保留路径的质量—效率差异；C 比较两种历史 token 选择机制，但必须明确 Reformer 是训练期 LSH attention，而 Keyformer 是推理期 KV-cache policy，不能把二者混成同一种架构或单一排行榜。Keyformer 仍使用统一 TinyLM/Full-Attention checkpoint 做 cache 压缩评估，而不是强行改造成原始论文没有的训练 backbone。
 
 每个人都要对自己负责的两个框架完成完整子实验，不能把某个模型的质量交给一人、速度交给另一人；每个人也必须在自己的运行环境中重跑 Standard/SDPA 或 FullKV 对照，不能借用他人的延迟数字。三人可以指定一名**协议协调人**负责合并 schema、检查配置 hash 和生成汇总图，但协调职责不替代其两个模型的实验责任。
 
@@ -765,7 +765,7 @@ validation 用于配置/ checkpoint 选择时，不能再把同一结果称为�
 - 训练：AdamW，lr `3e-4`，betas `(0.9,0.95)`，weight decay `0.1`，3% warmup，cosine 至 `3e-5`，gradient clip 1.0，BF16；context 512，effective batch 8192 tokens（推荐 micro-batch 4、accumulation 4）；每候选 pilot 1,048,576 tokens（约128 optimizer steps），主 run 10M tokens；必跑 seed17，可选 seed29。
 - 主配置：Longformer left window 128（总窗口257）；Performer features128；Linformer rank128；Reformer bucket64、hash4；Memformer segment128、slots64；Keyformer cache ratio 50/75/100%，recent ratio0.5，在共享 Full checkpoint 上评估。
 - 必测：train/validation 曲线、validation NLL/PPL、tokens/s、step time、prefill/decode latency、peak allocated/reserved memory、方法特有 state/cache bytes、参数量、OOM/失败边界以及 correctness 闸门。
-- 分工：A=Linformer+Performer，B=Longformer+Reformer，C=Memformer+Keyformer；每人对两个模型完成完整闭环。
+- 分工（调整后）：A=Linformer+Performer，B=Longformer+Memformer，C=Reformer+Keyformer；每人对两个模型完成完整闭环。B 角色将 Longformer 与 Memformer 放在一起，专门比较固定局部窗口和跨 segment recurrent memory 的长上下文信息保留；C 角色负责 Reformer 的 LSH 稀疏连接和 Keyformer 的推理期 KV-cache 淘汰，并继续训练共享 Full-Attention reference。
 - 时间：数据缓存约20–90分钟；每个候选 pilot约15–60分钟，未融合稀疏实现可能1–2小时；五个训练型模型和一个共享 Full-Attention reference 的 10M main 通常各30–120分钟，未融合的 Longformer/Reformer 可能2–4小时；validation约10–40分钟；Keyformer sweep约20–60分钟。三张GPU时总墙钟约12–24小时；一张共享GPU时约24–48小时。单run预计超过6小时则降至5M tokens并记录偏差。
 
 这是一份“时间受限 validation screening”配置，不是最终冻结的论文主实验。它优先保证六个框架都有可追溯 validation 结果；三 seed、完整参数曲线、长上下文和新模型的多话题记忆任务留到下一阶段。
@@ -780,4 +780,23 @@ validation 用于配置/ checkpoint 选择时，不能再把同一结果称为�
 
 RTX 4090 的 24GB 显存足以运行当前 `context=512` 配置。推荐每个 worker 使用 BF16、`micro_batch=4`、`gradient_accumulation=4`（有效 batch 为 8,192 tokens）；若某个未融合实现产生 OOM，改为 `micro_batch=2`、`gradient_accumulation=8`，不改变有效 batch。参数权重本身只占约 57MiB BF16，显存主要消耗来自激活、词表 logits、attention 中间张量和方法特有状态。当前机器的单步校准显示，Full Attention 在 batch=4、context=512 时峰值约 1.6–1.7GiB；仓库现有未融合 Longformer 实现约 6.3GiB，仍低于 24GB，但正式结果应以统一 runner 的峰值显存为准。
 
-三张卡并行后，三天版的总墙钟估计维持约 12–24 小时：A 负责 Linformer+Performer，B 负责 Longformer+Reformer，C 先训练共享 Full-Attention reference，再评估 Memformer+Keyformer。若某个单 run 在首轮 100-step calibration 后预计超过 6 小时，仍按既定规则降至 5M tokens并记录偏差；不通过删除模型或改变模型宽度来“适配”时间。
+三张卡并行后，三天版的总墙钟估计维持约 12–24 小时：A 负责 Linformer+Performer，B 负责 Longformer+Memformer，C 先训练共享 Full-Attention reference，再评估 Reformer+Keyformer。若某个单 run 在首轮 100-step calibration 后预计超过 6 小时，仍按既定规则降至 5M tokens并记录偏差；不通过删除模型或改变模型宽度来“适配”时间。
+
+### Q36：调整后的 B 角色具体负责哪些实验？
+
+研究者确认 B 角色负责 **Longformer + Memformer**，并要求随后按照 B 角色开始实验。两个模型放在一起，比较“固定局部窗口”和“跨 segment recurrent memory”在长上下文信息保留方面的差异。B 角色将对两个模型各自完成正确性检查、参数 pilot、TinyStories train→validation、延迟/吞吐、峰值显存和失败边界记录；不负责 Reformer 或 Keyformer。三张 RTX 4090 仍采用一人一张卡并行执行。
+
+### Q37：B 角色实验实际完成了什么？结果如何？
+
+已按 Q36 执行完成。统一 runner、原始 JSON、详细实验文档和可复核报告位于 `experiments/tinystories_tinylm_v1/` 与根目录的 `PERSON_B_TINYLM_DETAILED_EXPERIMENT_DOCUMENT.md`、`PERSON_B_TINYLM_REPORT.md`。
+
+部署计划仍是三人各占一张 RTX 4090；本次实际执行环境只暴露一张 RTX 4090，因此 B 角色的四个 pilot、两个 main 和效率矩阵均按单卡顺序运行，未把并发争用结果混入正式结果。
+
+- 正确性闸门全部通过：Longformer causal future-invariance=0，full-window RoPE 等价最大误差 `2.38e-7`；Memformer causal future-invariance=0，跨 segment history effect=`0.0351`，reset 和 batch reorder 均通过；两者梯度均有限。
+- pilot 候选已先于 main 冻结：Longformer 选择 left window=128；Memformer 选择 segment=128、memory slots=64。选择依据和被排除的并发/旧流程运行记录在 `person_b_pilot_selection.json`。
+- 两个冻结配置都完成 `10,000,000` training tokens、`1,221` optimizer steps、seed=17 和完整 validation（`4,765,917` predictions）。Longformer 完整 validation NLL/PPL=`2.8839/17.8841`；Memformer=`2.8456/17.2112`。
+- Memformer 相对 Longformer 在本条件下 NLL 低约 1.33%、PPL 低约 3.76%，训练吞吐高约 12.4%，peak allocated 显存低约 61.3%；但参数量高约 11.8%，因此不能表述为无条件全面优于 Longformer。
+- 端到端长度矩阵已测至 32,768，并按 BF16 autocast 重新核对；当前 Python/PyTorch 实现中 Full-Attention SDPA 仍比两个 adapter 快，说明理论复杂度优势没有自动转化为工程速度。另做了 attention-only 矩阵以分离词表 logits 与 attention 路径开销。长度 32,769 因预设 RoPE 最大位置明确失败，不是 OOM。
+- 机制诊断中，将最早 128 个 validation token 替换后，Longformer 的单 token 传播上限约为 6 层×128；对一个 128-token 前缀而言，长度≥1,024 时末端影响归零。Memformer 在长度 4,096 仍保留非零末端 logit 影响，但随 recurrent 压缩和 segment 数增加而衰减。这验证了“局部可达上限”和“跨 segment 压缩状态”是不同的信息通路，不等于事实检索准确率。
+
+结果的正确表述是“时间受限的 TinyLM/TinyStories validation screening”，不是原论文严格复现、充分收敛结论或跨任务总排行榜。下一步若要研究真正的长期事实保留，应在统一机制任务上增加跨 segment copy/passkey、更多 seed 和 fused/优化 kernel；当前 B 角色实验本身已完成最低交付闭环。

@@ -1,0 +1,99 @@
+{
+  "protocol_version": "tinystories_tinylm_v1",
+  "execution_profile": "three_day_validation_screening_v1",
+  "role": "person_b",
+  "status": "main_configs_frozen_before_main_training",
+  "seed": 17,
+  "pilot_train_tokens_per_candidate": 1048576,
+  "validation_probe_tokens": 262144,
+  "selection_rule": [
+    "correctness",
+    "finite_loss_and_gradients",
+    "validation_nll_after_pilot",
+    "throughput_if_validation_nll_within_5_percent",
+    "peak_memory_if_throughput_within_10_percent"
+  ],
+  "candidates": [
+    {
+      "run_id": "pilot_b_longformer_w128_s17",
+      "method": "longformer",
+      "left_window": 128,
+      "validation_nll": 4.912294484674931,
+      "validation_perplexity": 135.9509942870734,
+      "training_tokens_per_second": 14130.227307450932,
+      "peak_allocated_bytes": 7300155392,
+      "selected": true
+    },
+    {
+      "run_id": "pilot_b_longformer_w256_s17",
+      "method": "longformer",
+      "left_window": 256,
+      "validation_nll": 4.872143857181072,
+      "validation_perplexity": 130.60060602964575,
+      "training_tokens_per_second": 7996.609890733146,
+      "peak_allocated_bytes": 13054760960,
+      "selected": false
+    },
+    {
+      "run_id": "pilot_b_memformer_m32_s17",
+      "method": "memformer",
+      "segment_length": 128,
+      "memory_slots": 32,
+      "validation_nll": 4.580344244837761,
+      "validation_perplexity": 97.5479688124779,
+      "training_tokens_per_second": 15507.587714413494,
+      "peak_allocated_bytes": 2830336000,
+      "method_state_bytes_bf16_batch1": 147456,
+      "selected": false
+    },
+    {
+      "run_id": "pilot_b_memformer_m64_s17",
+      "method": "memformer",
+      "segment_length": 128,
+      "memory_slots": 64,
+      "validation_nll": 4.532152786850929,
+      "validation_perplexity": 92.95846559141533,
+      "training_tokens_per_second": 16093.234940470244,
+      "peak_allocated_bytes": 2826010624,
+      "method_state_bytes_bf16_batch1": 294912,
+      "selected": true
+    }
+  ],
+  "frozen_main_configs": {
+    "longformer": {
+      "left_window": 128,
+      "total_window_size": 257,
+      "global_tokens": 0,
+      "reason": "The window-256 NLL was only 0.82% lower (and PPL 3.94% lower), within the declared 5% quality band, while window 128 was 76.7% faster and used 44.1% less peak allocated memory."
+    },
+    "memformer": {
+      "segment_length": 128,
+      "memory_slots": 64,
+      "detach_memory_between_segments": false,
+      "reason": "64 slots achieved lower validation NLL, slightly higher measured throughput, and essentially unchanged peak allocated memory; its explicit recurrent state is twice the 32-slot state."
+    }
+  },
+  "excluded_runs": [
+    {
+      "run_id": "pilot_longformer_w128_s17",
+      "reason": "invalid_concurrent_same_gpu_run"
+    },
+    {
+      "run_id": "pilot_memformer_s128_m32_s17",
+      "reason": "invalid_concurrent_same_gpu_run"
+    },
+    {
+      "run_id": "pilot_seq_longformer_w128_s17",
+      "reason": "invalid_validation_left_model_in_eval_mode_during_training"
+    },
+    {
+      "run_id": "smoke_longformer_w128_s17",
+      "reason": "smoke_only_not_a_screening_pilot"
+    },
+    {
+      "run_id": "smoke_memformer_m64_s17",
+      "reason": "smoke_only_not_a_screening_pilot"
+    }
+  ],
+  "frozen_at_utc": "2026-09-04T10:41:00+00:00"
+}

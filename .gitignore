@@ -18,3 +18,7 @@ benchmark_results/*.png
 .conda_pkgs/
 PLANS/
 
+# Generated experiment runs and model checkpoints
+experiments/**/runs/
+experiments/**/*.pt
+

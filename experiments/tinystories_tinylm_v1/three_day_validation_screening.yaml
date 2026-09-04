@@ -1,6 +1,8 @@
 protocol_version: tinystories_tinylm_v1
 execution_profile: three_day_validation_screening_v1
 status: time_boxed_draft_not_final_main_experiment
+person_b_execution_status: completed_validation_screening
+person_b_result_report: ../../PERSON_B_TINYLM_REPORT.md
 
 # This profile is intended to produce a comparable validation result for all
 # six requested frameworks within three days. It is not a paper-scale final
@@ -21,6 +23,10 @@ comparison_methods:
     checkpoint_name: full_attention_tinylm_tinystories_v1
     token_budget: 10000000
     owner: person_c
+  assignment:
+    person_a: [linformer, performer]
+    person_b: [longformer, memformer]
+    person_c: [reformer, keyformer]
 
 hardware:
   recommended_gpu: NVIDIA RTX 4090 24GB or better

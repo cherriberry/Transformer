@@ -43,6 +43,7 @@ class LongformerSelfAttention(nn.Module):
         global_tokens: int = 1,
         dropout: float = 0.0,
         bias: bool = False,
+        output_bias: Optional[bool] = None,
         causal: bool = False,
         query_chunk_size: int = 256,
     ) -> None:
@@ -70,7 +71,11 @@ class LongformerSelfAttention(nn.Module):
         self.to_k = nn.Linear(dim, dim, bias=bias)
         self.to_v = nn.Linear(dim, dim, bias=bias)
         self.dropout = nn.Dropout(dropout)
-        self.to_out = nn.Linear(dim, dim, bias=True)
+        # Keep the historical default for existing microbenchmarks, while
+        # allowing the unified TinyLM protocol to disable every Linear bias.
+        if output_bias is None:
+            output_bias = True
+        self.to_out = nn.Linear(dim, dim, bias=output_bias)
 
     def _split_heads(self, x: torch.Tensor) -> torch.Tensor:
         batch, sequence, _ = x.shape
@@ -97,6 +102,8 @@ class LongformerSelfAttention(nn.Module):
         self,
         x: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
+        rotary_emb: Optional[object] = None,
+        position_ids: Optional[torch.Tensor] = None,
         **_: object,
     ) -> torch.Tensor:
         if x.ndim != 3:
@@ -121,6 +128,11 @@ class LongformerSelfAttention(nn.Module):
         q = self._split_heads(self.to_q(x))
         k = self._split_heads(self.to_k(x))
         v = self._split_heads(self.to_v(x))
+
+        if rotary_emb is not None:
+            if position_ids is None:
+                position_ids = torch.arange(sequence, device=x.device)
+            q, k = rotary_emb.apply_qk(q, k, position_ids)
 
         k_windows = self._local_windows(k)
         v_windows = self._local_windows(v)

@@ -1,0 +1,55 @@
+{
+  "protocol_version": "tinystories_tinylm_v1",
+  "role": "person_b",
+  "status": "completed",
+  "main_runs": {
+    "longformer": {
+      "run_id": "main_b_longformer_w128_s17",
+      "method_value": 128,
+      "train_tokens": 10000000,
+      "steps": 1221,
+      "training_tokens_per_second": 14003.663731144832,
+      "full_validation_nll": 2.8839143678345702,
+      "full_validation_perplexity": 17.88414145339277,
+      "peak_allocated_bytes": 7300155392,
+      "peak_reserved_bytes": 8237613056,
+      "total_parameters": 29925504,
+      "config_hash": "7ba895789644ab53e32adc27af802b312ad6237fe2a54d2d4ee4ae2d8dd15b5b"
+    },
+    "memformer": {
+      "run_id": "main_b_memformer_s128_m64_s17",
+      "method_value": 64,
+      "train_tokens": 10000000,
+      "steps": 1221,
+      "training_tokens_per_second": 15733.619984316843,
+      "full_validation_nll": 2.845558917237556,
+      "full_validation_perplexity": 17.21117560386334,
+      "peak_allocated_bytes": 2826797056,
+      "peak_reserved_bytes": 4215275520,
+      "total_parameters": 33466752,
+      "config_hash": "ad32e07e0b6f0727ababdcf54b861f1b55fefda087e3925a232fec290e51babf"
+    }
+  },
+  "comparisons": {
+    "memformer_minus_longformer_full_validation_nll": -0.03835545059701406,
+    "memformer_relative_nll_reduction": 0.01329978831022428,
+    "memformer_relative_ppl_reduction": 0.037629195188554176,
+    "memformer_relative_training_throughput_increase": 0.12353597504091048,
+    "memformer_relative_peak_allocated_reduction": 0.6127757692531047,
+    "memformer_relative_peak_reserved_reduction": 0.48828920570264767,
+    "memformer_parameter_increase": 0.11833545059090735
+  },
+  "correctness_status": "passed",
+  "artifacts": {
+    "pilot_selection": "experiments/tinystories_tinylm_v1/aggregate/person_b_pilot_selection.json",
+    "runs": "experiments/tinystories_tinylm_v1/aggregate/person_b_runs.json",
+    "end_to_end_efficiency": "experiments/tinystories_tinylm_v1/aggregate/person_b_efficiency.json",
+    "attention_efficiency": "experiments/tinystories_tinylm_v1/aggregate/person_b_attention_efficiency.json",
+    "cross_segment_influence": "experiments/tinystories_tinylm_v1/aggregate/person_b_cross_segment_influence.json",
+    "length_boundary": "experiments/tinystories_tinylm_v1/aggregate/person_b_length_boundary.json",
+    "training_validation_curves": "experiments/tinystories_tinylm_v1/aggregate/person_b_training_validation_curves.png",
+    "simple_report": "PERSON_B_TINYLM_SIMPLE_RESULT_REPORT.md",
+    "report": "PERSON_B_TINYLM_REPORT.md",
+    "detailed_report": "PERSON_B_TINYLM_DETAILED_EXPERIMENT_DOCUMENT.md"
+  }
+}

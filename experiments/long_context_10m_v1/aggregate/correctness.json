@@ -8,11 +8,11 @@
       "limit": 1e-05
     },
     "longformer_full_window_equivalence": {
-      "value": 1.043081283569336e-07,
+      "value": 5.960464477539063e-08,
       "limit": 1e-05
     },
     "longformer_padding_invariance": {
-      "value": 5.960464477539063e-08,
+      "value": 0.0,
       "limit": 1e-05
     },
     "longformer_checkpoint_recovery": {
@@ -28,7 +28,7 @@
       "limit": 1e-05
     },
     "memformer_history_effect": {
-      "value": 0.058104775846004486,
+      "value": 0.05810476839542389,
       "minimum": 1e-08
     },
     "memformer_reset": {

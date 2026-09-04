@@ -2,6 +2,8 @@ protocol_version: tinystories_tinylm_v1
 protocol_status: draft_time_boxed_validation_screening
 execution_profile: three_day_validation_screening_v1
 execution_profile_file: experiments/tinystories_tinylm_v1/three_day_validation_screening.yaml
+person_b_execution_status: completed_validation_screening
+person_b_result_report: ../../PERSON_B_TINYLM_REPORT.md
 hardware_profile:
   gpu_count: 3
   gpu_model: NVIDIA RTX 4090 24GB
@@ -16,8 +18,8 @@ three_day_comparison_scope:
   shared_reference: full_attention
   assignment:
     person_a: [linformer, performer]
-    person_b: [longformer, reformer]
-    person_c: [memformer, keyformer]
+    person_b: [longformer, memformer]
+    person_c: [reformer, keyformer]
 
 dataset:
   primary: roneneldan/TinyStories

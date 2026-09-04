@@ -1,0 +1,509 @@
+{
+  "protocol_version": "tinystories_tinylm_v1",
+  "role": "person_b",
+  "created_at_utc": "2026-09-04T11:41:15.783463+00:00",
+  "runs": [
+    {
+      "protocol_version": "tinystories_tinylm_v1",
+      "execution_profile": "three_day_validation_screening_v1",
+      "role": "person_b",
+      "run_id": "main_b_longformer_w128_s17",
+      "method": "longformer",
+      "method_value": 128,
+      "status": "ok",
+      "failure": null,
+      "seed": 17,
+      "train_tokens_requested": 10000000,
+      "train_tokens_completed": 10000000,
+      "optimizer_steps_completed": 1221,
+      "elapsed_training_seconds": 714.0988381318748,
+      "mean_training_tokens_per_second": 14003.663731144832,
+      "initial_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 10.910630345344543,
+        "perplexity": 54755.34920850068,
+        "elapsed_seconds": 2.4866277277469635,
+        "tokens_per_second": 105421.48994595121
+      },
+      "final_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 2.9096785448491573,
+        "perplexity": 18.350898627899287,
+        "elapsed_seconds": 2.1539421156048775,
+        "tokens_per_second": 121704.29191240537
+      },
+      "best_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 2.9096785448491573,
+        "perplexity": 18.350898627899287,
+        "elapsed_seconds": 2.1520810425281525,
+        "tokens_per_second": 121809.53914823158,
+        "step": 1221
+      },
+      "best_checkpoint_step": 1221,
+      "full_validation": {
+        "tokens": 4765917,
+        "token_weighted_nll": 2.8839143678345702,
+        "perplexity": 17.88414145339277,
+        "elapsed_seconds": 39.18938880413771,
+        "tokens_per_second": 121612.43503488382
+      },
+      "best_probe_full_validation": {
+        "tokens": 4765917,
+        "token_weighted_nll": 2.8839143678345702,
+        "perplexity": 17.88414145339277,
+        "elapsed_seconds": 39.18938880413771,
+        "tokens_per_second": 121612.43503488382
+      },
+      "parameters": {
+        "total_parameters": 29925504,
+        "trainable_parameters": 29925504,
+        "attention_parameters": 3538944,
+        "fp32_parameter_bytes": 119702016,
+        "bf16_parameter_bytes": 59851008
+      },
+      "model_parameter_digest": "50f0d8ac9966e1792dfee062618b928ebbd4a8bf90e59faea9d69a291d824fc3",
+      "peak_allocated_bytes": 7300155392,
+      "peak_reserved_bytes": 8237613056,
+      "config_hash": "7ba895789644ab53e32adc27af802b312ad6237fe2a54d2d4ee4ae2d8dd15b5b",
+      "completed_at_utc": "2026-09-04T10:58:57.637789+00:00"
+    },
+    {
+      "protocol_version": "tinystories_tinylm_v1",
+      "execution_profile": "three_day_validation_screening_v1",
+      "role": "person_b",
+      "run_id": "main_b_memformer_s128_m64_s17",
+      "method": "memformer",
+      "method_value": 64,
+      "status": "ok",
+      "failure": null,
+      "seed": 17,
+      "train_tokens_requested": 10000000,
+      "train_tokens_completed": 10000000,
+      "optimizer_steps_completed": 1221,
+      "elapsed_training_seconds": 635.5816404595971,
+      "mean_training_tokens_per_second": 15733.619984316843,
+      "initial_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 10.898919597268105,
+        "perplexity": 54117.86311308832,
+        "elapsed_seconds": 2.5109262838959694,
+        "tokens_per_second": 104401.31264756036
+      },
+      "final_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 2.872238617390394,
+        "perplexity": 17.67654496163529,
+        "elapsed_seconds": 2.1532235220074654,
+        "tokens_per_second": 121744.90819030312
+      },
+      "best_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 2.872238617390394,
+        "perplexity": 17.67654496163529,
+        "elapsed_seconds": 2.162516910582781,
+        "tokens_per_second": 121221.71101513112,
+        "step": 1221
+      },
+      "best_checkpoint_step": 1221,
+      "full_validation": {
+        "tokens": 4765917,
+        "token_weighted_nll": 2.845558917237556,
+        "perplexity": 17.21117560386334,
+        "elapsed_seconds": 39.07564912736416,
+        "tokens_per_second": 121966.41914932366
+      },
+      "best_probe_full_validation": {
+        "tokens": 4765917,
+        "token_weighted_nll": 2.845558917237556,
+        "perplexity": 17.21117560386334,
+        "elapsed_seconds": 39.07564912736416,
+        "tokens_per_second": 121966.41914932366
+      },
+      "parameters": {
+        "total_parameters": 33466752,
+        "trainable_parameters": 33466752,
+        "attention_parameters": 7080192,
+        "fp32_parameter_bytes": 133867008,
+        "bf16_parameter_bytes": 66933504
+      },
+      "model_parameter_digest": "2d1c1f2a7407b07538a6e8e42bc563381a4f3e2e2df2d5624e3365e1bfc8f25e",
+      "peak_allocated_bytes": 2826797056,
+      "peak_reserved_bytes": 4215275520,
+      "config_hash": "ad32e07e0b6f0727ababdcf54b861f1b55fefda087e3925a232fec290e51babf",
+      "completed_at_utc": "2026-09-04T11:10:31.658560+00:00",
+      "method_specific_state_bytes_bf16_batch1": 294912
+    },
+    {
+      "protocol_version": "tinystories_tinylm_v1",
+      "execution_profile": "three_day_validation_screening_v1",
+      "role": "person_b",
+      "run_id": "pilot_b_longformer_w128_s17",
+      "method": "longformer",
+      "method_value": 128,
+      "status": "ok",
+      "failure": null,
+      "seed": 17,
+      "train_tokens_requested": 1048576,
+      "train_tokens_completed": 1048576,
+      "optimizer_steps_completed": 128,
+      "elapsed_training_seconds": 74.2080065086484,
+      "mean_training_tokens_per_second": 14130.227307450932,
+      "initial_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 10.910630345344543,
+        "perplexity": 54755.34920850068,
+        "elapsed_seconds": 2.4572235234081745,
+        "tokens_per_second": 106683.00930002725
+      },
+      "final_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 4.912294484674931,
+        "perplexity": 135.9509942870734,
+        "elapsed_seconds": 2.141466446220875,
+        "tokens_per_second": 122413.31189784236
+      },
+      "best_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 4.912294484674931,
+        "perplexity": 135.9509942870734,
+        "elapsed_seconds": 2.143176794052124,
+        "tokens_per_second": 122315.62077730504,
+        "step": 128
+      },
+      "best_checkpoint_step": 128,
+      "full_validation": null,
+      "parameters": {
+        "total_parameters": 29925504,
+        "trainable_parameters": 29925504,
+        "attention_parameters": 3538944,
+        "fp32_parameter_bytes": 119702016,
+        "bf16_parameter_bytes": 59851008
+      },
+      "model_parameter_digest": "8a0e776f57e194cab836e328772cef33de9b2e87b9d110db67c1b408ae808858",
+      "peak_allocated_bytes": 7300155392,
+      "peak_reserved_bytes": 8237613056,
+      "config_hash": "0fe70b61774b427cbddd7770627436e6e24b137c9872d4518d7a4156b102985c",
+      "completed_at_utc": "2026-09-04T10:34:57.685595+00:00"
+    },
+    {
+      "protocol_version": "tinystories_tinylm_v1",
+      "execution_profile": "three_day_validation_screening_v1",
+      "role": "person_b",
+      "run_id": "pilot_b_longformer_w256_s17",
+      "method": "longformer",
+      "method_value": 256,
+      "status": "ok",
+      "failure": null,
+      "seed": 17,
+      "train_tokens_requested": 1048576,
+      "train_tokens_completed": 1048576,
+      "optimizer_steps_completed": 128,
+      "elapsed_training_seconds": 131.12756709754467,
+      "mean_training_tokens_per_second": 7996.609890733146,
+      "initial_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 10.909040376543999,
+        "perplexity": 54668.35908571275,
+        "elapsed_seconds": 3.968573611229658,
+        "tokens_per_second": 66054.96727041305
+      },
+      "final_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 4.872143857181072,
+        "perplexity": 130.60060602964575,
+        "elapsed_seconds": 3.662241853773594,
+        "tokens_per_second": 71580.19881452815
+      },
+      "best_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 4.872143857181072,
+        "perplexity": 130.60060602964575,
+        "elapsed_seconds": 3.675596348941326,
+        "tokens_per_second": 71320.12743333602,
+        "step": 128
+      },
+      "best_checkpoint_step": 128,
+      "full_validation": null,
+      "parameters": {
+        "total_parameters": 29925504,
+        "trainable_parameters": 29925504,
+        "attention_parameters": 3538944,
+        "fp32_parameter_bytes": 119702016,
+        "bf16_parameter_bytes": 59851008
+      },
+      "model_parameter_digest": "c3bcdf3c7a712d819df8b6d8a16576e3609ad96c4cd7d2078703e161c864d6b3",
+      "peak_allocated_bytes": 13054760960,
+      "peak_reserved_bytes": 14438891520,
+      "config_hash": "21260bfe8f79d1d963e12e5c3557a5cf7aeaf66e4a791cdbd25ba9b585f4c88b",
+      "completed_at_utc": "2026-09-04T10:37:30.582981+00:00"
+    },
+    {
+      "protocol_version": "tinystories_tinylm_v1",
+      "execution_profile": "three_day_validation_screening_v1",
+      "role": "person_b",
+      "run_id": "pilot_b_memformer_m32_s17",
+      "method": "memformer",
+      "method_value": 32,
+      "status": "ok",
+      "failure": null,
+      "seed": 17,
+      "train_tokens_requested": 1048576,
+      "train_tokens_completed": 1048576,
+      "optimizer_steps_completed": 128,
+      "elapsed_training_seconds": 67.61696398630738,
+      "mean_training_tokens_per_second": 15507.587714413494,
+      "initial_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 10.90229856967926,
+        "perplexity": 54301.035171884876,
+        "elapsed_seconds": 2.5579475574195385,
+        "tokens_per_second": 102482.16357666507
+      },
+      "final_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 4.580344244837761,
+        "perplexity": 97.5479688124779,
+        "elapsed_seconds": 2.2868366353213787,
+        "tokens_per_second": 114631.71262478914
+      },
+      "best_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 4.580344244837761,
+        "perplexity": 97.5479688124779,
+        "elapsed_seconds": 2.289300851523876,
+        "tokens_per_second": 114508.32241009455,
+        "step": 128
+      },
+      "best_checkpoint_step": 128,
+      "full_validation": null,
+      "parameters": {
+        "total_parameters": 33466752,
+        "trainable_parameters": 33466752,
+        "attention_parameters": 7080192,
+        "fp32_parameter_bytes": 133867008,
+        "bf16_parameter_bytes": 66933504
+      },
+      "model_parameter_digest": "f647149d6fea43aebce5eefbf062e83c36b2a15ae4caf725b8b67c6e7ea5c2fb",
+      "peak_allocated_bytes": 2830336000,
+      "peak_reserved_bytes": 4181721088,
+      "config_hash": "3695e059039f1547e6b2c1320a4c60f891e31453b025f9cb937722cc04691c67",
+      "completed_at_utc": "2026-09-04T10:38:56.975647+00:00",
+      "method_specific_state_bytes_bf16_batch1": 147456
+    },
+    {
+      "protocol_version": "tinystories_tinylm_v1",
+      "execution_profile": "three_day_validation_screening_v1",
+      "role": "person_b",
+      "run_id": "pilot_b_memformer_m64_s17",
+      "method": "memformer",
+      "method_value": 64,
+      "status": "ok",
+      "failure": null,
+      "seed": 17,
+      "train_tokens_requested": 1048576,
+      "train_tokens_completed": 1048576,
+      "optimizer_steps_completed": 128,
+      "elapsed_training_seconds": 65.15632213652134,
+      "mean_training_tokens_per_second": 16093.234940470244,
+      "initial_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 10.898919597268105,
+        "perplexity": 54117.86311308832,
+        "elapsed_seconds": 2.4995223693549633,
+        "tokens_per_second": 104877.63710938499
+      },
+      "final_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 4.532152786850929,
+        "perplexity": 92.95846559141533,
+        "elapsed_seconds": 2.180212613195181,
+        "tokens_per_second": 120237.81461195128
+      },
+      "best_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 4.532152786850929,
+        "perplexity": 92.95846559141533,
+        "elapsed_seconds": 2.19797782599926,
+        "tokens_per_second": 119265.98935583996,
+        "step": 128
+      },
+      "best_checkpoint_step": 128,
+      "full_validation": null,
+      "parameters": {
+        "total_parameters": 33466752,
+        "trainable_parameters": 33466752,
+        "attention_parameters": 7080192,
+        "fp32_parameter_bytes": 133867008,
+        "bf16_parameter_bytes": 66933504
+      },
+      "model_parameter_digest": "a564b77ad55555ac6c37eb77f71b6937da6738681e128ad06ea9b01afd8474e5",
+      "peak_allocated_bytes": 2826010624,
+      "peak_reserved_bytes": 4215275520,
+      "config_hash": "a7f5d6b6e6311d3befb24055f411b5703c48ba79f2cd2d4c42bef3f1875ecc5f",
+      "completed_at_utc": "2026-09-04T10:40:19.942494+00:00",
+      "method_specific_state_bytes_bf16_batch1": 294912
+    }
+  ],
+  "excluded_runs": [
+    {
+      "protocol_version": "tinystories_tinylm_v1",
+      "execution_profile": "three_day_validation_screening_v1",
+      "role": "person_b",
+      "run_id": "pilot_seq_longformer_w128_s17",
+      "method": "longformer",
+      "method_value": 128,
+      "status": "ok",
+      "failure": null,
+      "seed": 17,
+      "train_tokens_requested": 1048576,
+      "train_tokens_completed": 1048576,
+      "optimizer_steps_completed": 128,
+      "elapsed_training_seconds": 73.99176650121808,
+      "mean_training_tokens_per_second": 14171.52271912224,
+      "initial_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 10.910630345344543,
+        "perplexity": 54755.34920850068,
+        "elapsed_seconds": 2.4486673772335052,
+        "tokens_per_second": 107055.78162117276
+      },
+      "final_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 4.794110536575317,
+        "perplexity": 120.79688956985731,
+        "elapsed_seconds": 2.139328006654978,
+        "tokens_per_second": 122535.67437275995
+      },
+      "best_validation_probe": {
+        "tokens": 262144,
+        "token_weighted_nll": 4.794110536575317,
+        "perplexity": 120.79688956985731,
+        "elapsed_seconds": 2.141790594905615,
+        "tokens_per_second": 122394.78529018018,
+        "step": 128
+      },
+      "best_checkpoint_step": 128,
+      "full_validation": null,
+      "parameters": {
+        "total_parameters": 29925504,
+        "trainable_parameters": 29925504,
+        "attention_parameters": 3538944,
+        "fp32_parameter_bytes": 119702016,
+        "bf16_parameter_bytes": 59851008
+      },
+      "model_parameter_digest": "e8094dcfce7d2df425bf520840a4a96f2d4c149d3250139efd2555367bc8c390",
+      "peak_allocated_bytes": 7294103552,
+      "peak_reserved_bytes": 8233418752,
+      "config_hash": "00b550ee7b522439fc064e81d129c1f284234f7dc5d1663cd7d25c1b198c9c7a",
+      "completed_at_utc": "2026-09-04T10:29:51.338078+00:00"
+    },
+    {
+      "protocol_version": "tinystories_tinylm_v1",
+      "execution_profile": "three_day_validation_screening_v1",
+      "role": "person_b",
+      "run_id": "smoke_longformer_w128_s17",
+      "method": "longformer",
+      "method_value": 128,
+      "status": "ok",
+      "failure": null,
+      "seed": 17,
+      "train_tokens_requested": 8192,
+      "train_tokens_completed": 8192,
+      "optimizer_steps_completed": 1,
+      "elapsed_training_seconds": 0.8206928074359894,
+      "mean_training_tokens_per_second": 9981.81039942761,
+      "initial_validation_probe": {
+        "tokens": 4096,
+        "token_weighted_nll": 10.925015449523926,
+        "perplexity": 55548.70317017678,
+        "elapsed_seconds": 0.3514542169868946,
+        "tokens_per_second": 11654.4340685852
+      },
+      "final_validation_probe": {
+        "tokens": 4096,
+        "token_weighted_nll": 10.247070789337158,
+        "perplexity": 28199.81761457868,
+        "elapsed_seconds": 0.03903523460030556,
+        "tokens_per_second": 104930.84112188063
+      },
+      "best_validation_probe": {
+        "tokens": 4096,
+        "token_weighted_nll": 10.247070789337158,
+        "perplexity": 28199.81761457868,
+        "elapsed_seconds": 0.04023726284503937,
+        "tokens_per_second": 101796.18866657013,
+        "step": 1
+      },
+      "best_checkpoint_step": 1,
+      "full_validation": null,
+      "parameters": {
+        "total_parameters": 29925504,
+        "trainable_parameters": 29925504,
+        "attention_parameters": 3538944,
+        "fp32_parameter_bytes": 119702016,
+        "bf16_parameter_bytes": 59851008
+      },
+      "model_parameter_digest": "b4e4b0f9e12e8e0032a73e72ac92d501c0c8d002e27e516b1b42d85f2711f7ad",
+      "peak_allocated_bytes": 7051847168,
+      "peak_reserved_bytes": 7413432320,
+      "config_hash": "652fbd62f60f978f3d15520ccd14218f2b6c0dd82cc0776969440b057a40eb9e",
+      "completed_at_utc": "2026-09-04T10:22:22.279464+00:00"
+    },
+    {
+      "protocol_version": "tinystories_tinylm_v1",
+      "execution_profile": "three_day_validation_screening_v1",
+      "role": "person_b",
+      "run_id": "smoke_memformer_m64_s17",
+      "method": "memformer",
+      "method_value": 64,
+      "status": "ok",
+      "failure": null,
+      "seed": 17,
+      "train_tokens_requested": 8192,
+      "train_tokens_completed": 8192,
+      "optimizer_steps_completed": 1,
+      "elapsed_training_seconds": 0.7356149926781654,
+      "mean_training_tokens_per_second": 11136.260246919728,
+      "initial_validation_probe": {
+        "tokens": 4096,
+        "token_weighted_nll": 10.914298057556152,
+        "perplexity": 54956.54480968318,
+        "elapsed_seconds": 0.4075568802654743,
+        "tokens_per_second": 10050.130910149152
+      },
+      "final_validation_probe": {
+        "tokens": 4096,
+        "token_weighted_nll": 10.125897407531738,
+        "perplexity": 24981.66431926826,
+        "elapsed_seconds": 0.066519845277071,
+        "tokens_per_second": 61575.609247724264
+      },
+      "best_validation_probe": {
+        "tokens": 4096,
+        "token_weighted_nll": 10.125897407531738,
+        "perplexity": 24981.66431926826,
+        "elapsed_seconds": 0.06568344682455063,
+        "tokens_per_second": 62359.69940708151,
+        "step": 1
+      },
+      "best_checkpoint_step": 1,
+      "full_validation": null,
+      "parameters": {
+        "total_parameters": 33466752,
+        "trainable_parameters": 33466752,
+        "attention_parameters": 7080192,
+        "fp32_parameter_bytes": 133867008,
+        "bf16_parameter_bytes": 66933504
+      },
+      "model_parameter_digest": "35f701553bcc3baf85ed5693a6a49378f39d3370d3edceafd112bdf516e11048",
+      "peak_allocated_bytes": 2218689536,
+      "peak_reserved_bytes": 2671771648,
+      "config_hash": "ce8594c579b6a9fdca475ea7918d3cb44ebed7e4cdfde7e8425a48e7474a96cd",
+      "completed_at_utc": "2026-09-04T10:24:57.521721+00:00",
+      "method_specific_state_bytes_bf16_batch1": 294912
+    }
+  ],
+  "other_runs": [],
+  "selection_manifest": "experiments/tinystories_tinylm_v1/aggregate/person_b_pilot_selection.json"
+}

@@ -1,5 +1,9 @@
 # B 角色：与 Longformer / Memformer 原论文条件对比报告
 
+> 本文件是原论文条件对齐的历史报告，不是本次 TinyStories validation
+> screening 的结果汇总。统一 TinyLM/TinyStories 的 B 角色正式结果见
+> [PERSON_B_TINYLM_REPORT.md](PERSON_B_TINYLM_REPORT.md)。
+
 日期：2026-09-03  
 标准：`PAPER_COMPARISON_STANDARD.md`（`paper_comparison_v1`）
 
