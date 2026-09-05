@@ -564,6 +564,7 @@ Memformer 的 memory update 只接收 hidden/memory states，通过 attention �
 | 2026-09-04 | 核对 Memformer 是否保存助手内容 | 已完成；原实现无显式来源控制 |
 | 2026-09-04 | 确认记录助手内容并采用独立固定槽 | 第一版四类槽已冻结 |
 | 2026-09-04 | 确认三人各有一张 RTX 4090，并固定三 GPU 并行执行方式 | 已确认；每人一张卡，数据只读共享、结果隔离 |
+| 2026-09-05 | 确认后续扩展实验可使用本机数据盘 | 已确认；使用 `/root/autodl-tmp/26summerBDMI_transformer/`，现有正式结果不搬动 |
 
 ## 8. 后续研究设计访谈记录
 
@@ -800,3 +801,40 @@ RTX 4090 的 24GB 显存足以运行当前 `context=512` 配置。推荐每个 w
 - 机制诊断中，将最早 128 个 validation token 替换后，Longformer 的单 token 传播上限约为 6 层×128；对一个 128-token 前缀而言，长度≥1,024 时末端影响归零。Memformer 在长度 4,096 仍保留非零末端 logit 影响，但随 recurrent 压缩和 segment 数增加而衰减。这验证了“局部可达上限”和“跨 segment 压缩状态”是不同的信息通路，不等于事实检索准确率。
 
 结果的正确表述是“时间受限的 TinyLM/TinyStories validation screening”，不是原论文严格复现、充分收敛结论或跨任务总排行榜。下一步若要研究真正的长期事实保留，应在统一机制任务上增加跨 segment copy/passkey、更多 seed 和 fused/优化 kernel；当前 B 角色实验本身已完成最低交付闭环。
+
+### Q38：后续扩展训练的数据和 checkpoint 存放在哪里？
+
+研究者确认后续实验可以使用数据盘。本机已核对到可写数据盘为 `/root/autodl-tmp`，当前总容量约 50GB、可用空间约 50GB；`/autodl-pub/data` 是只读公共盘，不作为运行输出位置。
+
+后续新增的长训练 token cache、checkpoint 和运行日志统一放在：
+
+```text
+/root/autodl-tmp/26summerBDMI_transformer/
+├── data/cache/tinystories_tinylm_v1/
+├── runs/person_b_extended/
+└── logs/
+```
+
+现有 10M B 角色正式实验、原始 JSON 和报告继续保留在仓库原路径，不搬动、不覆盖，以保证已有结果的可追溯性。扩展实验使用新的 run ID，并在仓库报告中保存指向数据盘结果的明确路径和配置 hash。
+
+按当前约 360–400MB/训练 checkpoint 估算，50M 或 100M token 缓存本身仅约 200MB 或 400MB，主要空间消耗来自 checkpoint。扩展训练不再每 1M tokens 永久保存一次完整 checkpoint；默认每 10M tokens 保存一个恢复点，并长期保留最佳与最终 checkpoint。这样两模型 100M 训练及必要的多 seed 结果可控制在数据盘容量内，同时避免根分区剩余空间成为实验限制。
+
+### Q39：100M-token 扩展实验完成了吗？它说明什么？
+
+已完成。Longformer（left window=128）和 Memformer（segment=128、slots=64）在相同 `seed=17`、`context=512`、effective batch=8,192 和优化器设置下，各自训练满 100,000,000 tokens（12,208 optimizer steps），并完成全量 TinyStories validation；运行状态均为 `ok`，没有 OOM、NaN 或提前终止。原始摘要保存在数据盘：
+
+```text
+/root/autodl-tmp/26summerBDMI_transformer/runs/person_b_extended/extended100m_longformer_w128_s17/summary.json
+/root/autodl-tmp/26summerBDMI_transformer/runs/person_b_extended/extended100m_memformer_s128_m64_s17/summary.json
+```
+
+完整 validation 结果如下：
+
+| 训练预算 | Longformer NLL / PPL | Memformer NLL / PPL | 质量占优 |
+|---:|---:|---:|---|
+| 10M（原正式 screening） | 2.883914 / 17.884141 | **2.845559 / 17.211176** | Memformer |
+| 100M（扩展） | **1.807748 / 6.096701** | 1.865966 / 6.462175 | Longformer |
+
+100M 扩展从初始化重新训练（不是从 10M checkpoint 接续）。在该预算下，Memformer 的完整 validation NLL/PPL 比 Longformer 高约 3.22%/5.99%，即质量排序相对 10M 发生反转；从 20M probe 开始，Longformer 在每个观测点都优于 Memformer。与此同时，Memformer 的训练流程吞吐在 100M 时高约 14.03%，训练时间低约 12.31%，peak allocated 显存低约 61.28%，资源侧趋势与 10M 一致。
+
+因此当前应采用的表述是：**质量结论依赖训练预算；Memformer 的资源和跨 segment 信息通路优势较稳定，但其短预算质量优势不能外推到更充分训练。** 100M 是更充分的比较预算，但仍只有一个 seed，validation 曲线末端仍在下降，不能称为充分收敛、全局最佳或统计显著结论。

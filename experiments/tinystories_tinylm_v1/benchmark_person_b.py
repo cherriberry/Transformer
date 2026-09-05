@@ -42,13 +42,24 @@ from run_person_b import (
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPERIMENT_DIR = Path(__file__).resolve().parent
-RUNS_DIR = EXPERIMENT_DIR / "runs" / "person_b"
-AGGREGATE_DIR = EXPERIMENT_DIR / "aggregate"
+RUNS_DIR = Path(
+    os.environ.get("PERSON_B_RUNS_DIR", str(EXPERIMENT_DIR / "runs" / "person_b"))
+)
+AGGREGATE_DIR = Path(
+    os.environ.get("PERSON_B_AGGREGATE_DIR", str(EXPERIMENT_DIR / "aggregate"))
+)
 
 
 def stable_hash(value: Any) -> str:
     payload = json.dumps(value, sort_keys=True, ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def path_for_record(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
 
 
 def atomic_json(path: Path, payload: dict[str, Any]) -> None:
@@ -271,7 +282,7 @@ def benchmark(args: argparse.Namespace, device: torch.device) -> dict[str, Any]:
                     "sequence_length": length,
                     "batch_sequences": 1,
                     "dtype": "bfloat16" if device.type == "cuda" else "float32",
-                    "source_checkpoint": str(loaded_path.relative_to(ROOT)),
+                    "source_checkpoint": path_for_record(loaded_path),
                     "method_config": method_config,
                     "parameter_record": parameter_record(model),
                     "baseline_allocated_bytes": baseline_allocated,

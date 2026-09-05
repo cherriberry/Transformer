@@ -1,10 +1,10 @@
 # B 角色实验结果速览：Longformer vs. Memformer
 
-实验日期：2026-09-04  
+实验日期：2026-09-04；文档更新时间：2026-09-05
 任务：TinyLM + TinyStories validation screening  
 硬件：单张 NVIDIA GeForce RTX 4090 24GB  
 
-> **一句话结论：** 在本次单 seed、10M-token TinyStories screening 中，Memformer 的 validation 质量、训练吞吐和训练峰值显存优于 Longformer，但参数量更多，而且当前 Python/PyTorch 前向实现更慢；因此不能称为无条件全面优于 Longformer。
+> **一句话结论：** 10M-token screening 时 Memformer 的 validation 略优；扩展到相同 100M-token 预算后 Longformer 的 validation 反超，而 Memformer 在两种预算下都保持更高训练吞吐和更低训练峰值显存。质量排序依赖训练预算，不能称任一方法无条件全面优于另一方。
 
 ## 1. 实验条件
 
@@ -14,12 +14,14 @@
 | Tokenizer | `openai-community/gpt2`，每篇故事追加 EOS 后串接 |
 | 公共 TinyLM | 6 层，hidden=384，8 heads，FFN=1536，Pre-LN，GELU，RoPE |
 | 训练上下文 | 512 tokens |
-| 训练预算 | 每个模型 10,000,000 tokens，1,221 optimizer steps |
+| 训练预算 | 正式 screening：每个模型 10,000,000 tokens、1,221 steps；扩展：每个模型 100,000,000 tokens、12,208 steps |
 | 有效 batch | 8,192 tokens（micro-batch=4，gradient accumulation=4） |
 | 优化 | AdamW，lr=`3e-4`，3% warmup，cosine decay，BF16 autocast |
 | 随机种子 | 17 |
 | 完整验证规模 | 21,990 stories，4,765,917 next-token predictions |
 | 冻结配置 | Longformer：left window=128；Memformer：segment=128、slots=64 |
+
+100M 扩展从初始化重新训练，使用同一冻结配置和 seed=17，结果存放在数据盘 `/root/autodl-tmp/26summerBDMI_transformer/runs/person_b_extended/`；它是独立扩展 run，不覆盖仓库内 10M 正式结果。
 
 ## 2. 核心结果
 
@@ -28,14 +30,25 @@
 | 指标 | Longformer | Memformer | Memformer 相对 Longformer | 本轮占优 |
 |---|---:|---:|---:|---|
 | 参数量 `↓` | **29,925,504** | 33,466,752 | +11.83% | Longformer |
-| Validation NLL `↓` | 2.883914 | **2.845559** | -1.33% | Memformer |
-| Validation PPL `↓` | 17.884141 | **17.211176** | -3.76% | Memformer |
-| 统一训练流程吞吐 `↑` | 14,003.66 tok/s | **15,733.62 tok/s** | +12.35% | Memformer |
-| 统一训练流程耗时 `↓` | 714.10 s | **635.58 s** | -11.00% | Memformer |
-| Run peak allocated `↓` | 6.80 GiB | **2.63 GiB** | -61.28% | Memformer |
-| Run peak reserved `↓` | 7.67 GiB | **3.93 GiB** | -48.83% | Memformer |
+| 10M Validation NLL `↓` | 2.883914 | **2.845559** | -1.33% | Memformer |
+| 10M Validation PPL `↓` | 17.884141 | **17.211176** | -3.76% | Memformer |
+| 10M 训练流程吞吐 `↑` | 14,003.66 tok/s | **15,733.62 tok/s** | +12.35% | Memformer |
+| 10M 训练流程耗时 `↓` | 714.10 s | **635.58 s** | -11.00% | Memformer |
+| 10M peak allocated `↓` | 6.80 GiB | **2.63 GiB** | -61.28% | Memformer |
+| 10M peak reserved `↓` | 7.67 GiB | **3.93 GiB** | -48.83% | Memformer |
 
-最直接的读法是：Memformer 用约 **11.8% 的额外参数**，换得约 **3.8% 的 PPL 降低**、**12.4% 的训练流程吞吐提升**和明显更低的训练运行峰值显存。由于只有一个 seed，PPL 优势应视为本配置下的趋势，而不是统计显著结论。
+### 100M-token 扩展对照
+
+| 指标 | Longformer | Memformer | Memformer 相对 Longformer | 本轮占优 |
+|---|---:|---:|---:|---|
+| 完整 Validation NLL `↓` | **1.807748** | 1.865966 | +3.22% | Longformer |
+| 完整 Validation PPL `↓` | **6.096701** | 6.462175 | +5.99% | Longformer |
+| 训练流程吞吐 `↑` | 14,743.77 tok/s | **16,813.01 tok/s** | +14.03% | Memformer |
+| 训练流程耗时 `↓` | 6,782.53 s | **5,947.78 s** | -12.31% | Memformer |
+| Peak allocated `↓` | 6.80 GiB | **2.63 GiB** | -61.28% | Memformer |
+| Peak reserved `↓` | 7.69 GiB | **3.93 GiB** | -48.92% | Memformer |
+
+最直接的读法是：在 10M screening 中，Memformer 用约 **11.8% 的额外参数**换得约 **3.8% 的 PPL 降低**；但在 100M 扩展中，Longformer 的 PPL 低约 **6.0%**。Memformer 的训练吞吐和峰值显存优势在两种预算下都出现。由于只有一个 seed，以上质量差异都应视为本配置下的趋势，而不是统计显著结论。
 
 ![训练与 validation probe 曲线](experiments/tinystories_tinylm_v1/aggregate/person_b_training_validation_curves.png)
 
@@ -44,14 +57,14 @@
 ### 3.1 生成质量
 
 - 两个模型都稳定完成训练和完整 validation，最终 probe 同时是各自最佳 probe。
-- Memformer 的完整 validation PPL 为 **17.211**，低于 Longformer 的 **17.884**。
-- 10M tokens 结束时两条 validation 曲线仍在下降，所以这是短预算筛选结果，不能称为充分收敛结果。
+- 10M 时 Memformer 的完整 validation PPL 为 **17.211**，低于 Longformer 的 **17.884**；100M 时 Longformer 的 PPL 为 **6.097**，低于 Memformer 的 **6.462**。
+- 100M probe 轨迹从 20M 开始一直由 Longformer 占优，但末端仍在下降；100M 是更充分的比较预算，不是充分收敛证明。
 - Memformer 参数更多，因此当前结果不能单独证明 recurrent memory 在严格等参数条件下更优。
 
 ### 3.2 训练资源
 
-- Memformer 的统一训练流程吞吐高 **12.35%**，完成相同 token 预算少用约 **78.5 秒**。
-- Memformer 的 run-level peak allocated 为 **2.63 GiB**，比 Longformer 低 **61.28%**。
+- 在 10M/100M 两种预算下，Memformer 的统一训练流程吞吐分别高 **12.35%/14.03%**；100M 时完成相同预算少用约 **834.75 秒**。
+- Memformer 的 run-level peak allocated 在两种预算下均约 **2.63 GiB**，比 Longformer 低约 **61.28%**。
 - 这里的流程吞吐包含定期 validation probe 和 checkpoint 写入；峰值覆盖整个运行过程，不是单个 attention kernel 的显存。
 
 ### 3.3 长序列前向效率
@@ -97,13 +110,13 @@ Memformer 的 attention 工作内存最低，但延迟最高。要把固定 memo
 
 | 方法 | 本轮主要优点 | 本轮主要代价 | 更适合优先验证的方向 |
 |---|---|---|---|
-| Longformer | 参数更少；机制简单；当前 adapter 前向比 Memformer 快 | 训练峰值显存较高；无 global token 时有明确局部传播边界 | 近期局部依赖、优化 sliding-window kernel |
-| Memformer | PPL 略低；训练流程更快；训练峰值显存更低；存在跨 segment 路径 | 参数多 11.83%；当前前向更慢；固定槽反复压缩会衰减细节 | 跨段语义保留、动态重要性选择、fused memory kernel |
+| Longformer | 参数更少；机制简单；100M 预算下 validation 更好；当前 adapter 前向比 Memformer 快 | 训练峰值显存较高；无 global token 时有明确局部传播边界 | 近期局部依赖、优化 sliding-window kernel |
+| Memformer | 10M screening 质量略好；两种预算下训练流程更快、训练峰值显存更低；存在跨 segment 路径 | 参数多 11.83%；100M 质量落后；当前前向更慢；固定槽反复压缩会衰减细节 | 跨段语义保留、动态重要性选择、fused memory kernel |
 
 ## 5. 结论边界
 
 - 只有 `seed=17`，没有均值、标准差或显著性检验。
-- 10M training tokens 是 screening 预算，不代表充分收敛。
+- 10M training tokens 是 screening 预算；100M 扩展也未达到可宣称的充分收敛，且只有一个 seed。
 - 模型只在 context=512 上训练；512 到 32K 的结果是效率和信息通路诊断，不是 32K 语言建模质量。
 - TinyStories 由短故事组成，跨故事 packing 不等于真实的长期记忆场景。
 - 两模型参数量不相等，且当前实现是 protocol adapter，不是原论文严格复现。
@@ -111,7 +124,7 @@ Memformer 的 attention 工作内存最低，但延迟最高。要把固定 memo
 
 ## 6. 下一步优先级
 
-1. 固定当前配置补齐 seeds 29、43，报告 validation NLL/PPL 的均值和标准差。
+1. 固定当前配置补齐 seeds 29、43，报告 validation NLL/PPL 的均值和标准差；100M 反转现象尤其需要多 seed 复核。
 2. 增加 passkey、copy、associative recall 和话题切换后的细节恢复任务。
 3. 增加等参数或等 FLOPs 对照，分离“额外参数”和“记忆机制”的贡献。
 4. 将动态重要性保留作为 Memformer 基线之后的创新实验，依次验证 soft gate、hard top-k 和 active-slot packing。
@@ -125,4 +138,3 @@ Memformer 的 attention 工作内存最低，但延迟最高。要把固定 memo
 - 端到端效率 JSON：[person_b_efficiency.json](experiments/tinystories_tinylm_v1/aggregate/person_b_efficiency.json)
 - Attention-only JSON：[person_b_attention_efficiency.json](experiments/tinystories_tinylm_v1/aggregate/person_b_attention_efficiency.json)
 - 机制诊断 JSON：[person_b_cross_segment_influence.json](experiments/tinystories_tinylm_v1/aggregate/person_b_cross_segment_influence.json)
-

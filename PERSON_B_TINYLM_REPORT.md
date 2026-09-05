@@ -1,6 +1,6 @@
 # B 角色实验报告：Longformer + Memformer
 
-日期：2026-09-04  
+日期：2026-09-04；文档更新时间：2026-09-05
 硬件：NVIDIA GeForce RTX 4090 24GB（本次实际环境可见 1 张卡）  
 角色主题：固定局部窗口与跨 segment recurrent memory 的长上下文信息保留。
 
@@ -8,9 +8,9 @@
 
 详细实验文档见 [PERSON_B_TINYLM_DETAILED_EXPERIMENT_DOCUMENT.md](PERSON_B_TINYLM_DETAILED_EXPERIMENT_DOCUMENT.md)。
 
-在统一 TinyLM/TinyStories、10M training-token、seed=17、context=512 的 screening 条件下，两个冻结配置都完成了完整 validation。Memformer（segment=128、64 slots）取得略低的 validation NLL/PPL，并且训练吞吐更高、训练峰值显存更低；Longformer（left window=128、global=0）参数更少、结构更简单。效率矩阵显示：当前 Python/PyTorch 实现的 Longformer 和 Memformer 都没有超过高度优化的 SDPA Full-Attention 参考的端到端前向速度，因此结果同时揭示了算法复杂度与工程 kernel 实现之间的差距。
+在统一 TinyLM/TinyStories、seed=17、context=512 的条件下，10M-token screening 中 Memformer（segment=128、64 slots）取得略低的 validation NLL/PPL，并且训练吞吐更高、训练峰值显存更低；同一冻结配置扩展到 100M tokens 后，Longformer（left window=128、global=0）的完整 validation NLL/PPL 反超 Memformer，而 Memformer 的训练吞吐和训练峰值显存优势仍然存在。Longformer 参数更少、结构更简单。效率矩阵显示：当前 Python/PyTorch 实现的 Longformer 和 Memformer 都没有超过高度优化的 SDPA Full-Attention 参考的端到端前向速度，因此结果同时揭示了算法复杂度与工程 kernel 实现之间的差距。
 
-这些结论是本项目 TinyLM-long-v1 的短预算 validation screening，不是原论文复现，也不是充分收敛或论文级排行榜。
+这些结论是本项目 TinyLM-long-v1 的单 seed validation screening 与 100M-token 扩展，不是原论文复现，也不是多 seed、充分收敛或论文级排行榜。
 
 ## 1. 固定实验协议
 
@@ -18,7 +18,7 @@
 - 公共主干：6 layers、hidden=384、8 heads、head dim=48、FFN=1536、Pre-LN、GELU、RoPE(max=32768)、dropout=0.1、tied embeddings、Linear bias 关闭、LayerNorm affine 保留。
 - 公共参数：29,925,504（约 29.93M）。Longformer 保持该数量；Memformer 因额外 memory Q/K/V、输出投影和 gate 为 33,466,752（约 33.47M）。
 - 训练：AdamW，lr=3e-4，betas=(0.9,0.95)，weight decay=0.1，3% warmup，cosine 到 3e-5，gradient clip=1.0，BF16 autocast、FP32 参数；micro-batch=4、gradient accumulation=4，有效 batch=8,192 tokens；seed=17。
-- pilot：每个候选 1,048,576 tokens；主实验：10,000,000 tokens；固定 probe：262,144 predictions；最终 validation：4,765,917 predictions。
+- pilot：每个候选 1,048,576 tokens；正式 screening：10,000,000 tokens；扩展 run：100,000,000 tokens；固定 probe：262,144 predictions；最终 validation：4,765,917 predictions。
 
 ## 2. 候选筛选与冻结
 
@@ -41,6 +41,20 @@ Longformer 的 256-window PPL 低 3.94%，但仍在预定 5% 质量带内；wind
 | Memformer s=128,m=64 | 10,000,000 | 1,221 | 15,734 | 2.8722 / 17.677 | 2.8456 / 17.211 | 2.63 / 3.92 GiB |
 
 相对 Longformer，Memformer 完整 validation NLL 低约 1.33%，PPL 低约 3.76%；训练吞吐高约 12.4%；peak allocated 低约 61.3%，peak reserved 低约 48.8%。同时其参数量高约 11.8%，所以“质量—显存更好”不能简化为“全面更优”。
+
+### 3.1 100M-token 扩展结果
+
+| 方法 | 完整 validation NLL | 完整 validation PPL | 训练吞吐 | 训练时间 | Peak allocated | Peak reserved |
+|---|---:|---:|---:|---:|---:|---:|
+| Longformer w=128 | **1.807748** | **6.096701** | 14,743.77 tok/s | 6,782.53 s（113.04 min） | 6.80 GiB | 7.69 GiB |
+| Memformer s=128,m=64 | 1.865966 | 6.462175 | **16,813.01 tok/s** | **5,947.78 s（99.13 min）** | **2.63 GiB** | **3.93 GiB** |
+
+100M 扩展从初始化重新训练（不是从 10M checkpoint 接续），使用与 10M 相同的冻结配置、seed=17、context=512 和 effective batch=8,192。相对 Longformer，Memformer 的完整 validation NLL 高约 3.22%、PPL 高约 5.99%，但训练吞吐高约 14.03%、训练时间低约 12.31%，peak allocated 低约 61.28%。100M 的质量排序与 10M 相反，说明训练预算会影响架构比较结论；这不是多 seed 统计结论。
+
+扩展原始摘要：
+
+- [Longformer 100M summary](../../autodl-tmp/26summerBDMI_transformer/runs/person_b_extended/extended100m_longformer_w128_s17/summary.json)
+- [Memformer 100M summary](../../autodl-tmp/26summerBDMI_transformer/runs/person_b_extended/extended100m_memformer_s128_m64_s17/summary.json)
 
 每个训练步和 validation probe 的原始曲线保存在：
 
@@ -91,14 +105,14 @@ Longformer 的 256-window PPL 低 3.94%，但仍在预定 5% 质量带内；wind
 本轮支持：
 
 - 在相同 TinyLM/TinyStories 预算下，Longformer 的固定局部连接与 Memformer 的跨 segment 状态路径都能稳定训练并达到 validation；
-- Memformer 在本配置和短预算上取得稍好的 PPL、较高训练吞吐和较低训练峰值显存，但使用约 11.8% 更多参数；
+- 10M 时 Memformer 略低的 PPL、100M 时 Longformer 略低的 PPL，以及 Memformer 在两种预算下较高训练吞吐和较低训练峰值显存；Memformer 使用约 11.8% 更多参数；
 - Longformer 的窗口参数对质量、速度和显存有明显折中；Memformer 的 slots 参数在 pilot 中体现容量—质量趋势；
 - 长度扩展到 32K 在当前 RoPE 和实现下可运行，结构状态与 attention-only 内存趋势可被单独观察。
 
 本轮不支持：
 
 - 原论文 text8/enwik8 或 MemBART 的严格复现；
-- 充分收敛、三 seed 统计显著性或跨数据集普遍结论；
+- 充分收敛、三 seed 统计显著性或跨数据集普遍结论；100M 仍不是全局最佳状态；
 - 仅凭 TinyStories packed validation 证明真正的跨文档事实记忆；
 - 把当前 Python 实现的速度直接等同于 fused Longformer/Memformer kernel 的理论复杂度。
 

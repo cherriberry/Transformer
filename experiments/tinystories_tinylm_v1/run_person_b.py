@@ -36,11 +36,30 @@ from transformers import AutoTokenizer
 ROOT = Path(__file__).resolve().parents[2]
 EXPERIMENT_DIR = Path(__file__).resolve().parent
 PROFILE_PATH = EXPERIMENT_DIR / "three_day_validation_screening.yaml"
-DATA_DIR = ROOT / "data" / "raw" / "tinystories" / "data"
-TOKENIZER_DIR = ROOT / "data" / "tokenizer" / "gpt2"
-CACHE_DIR = ROOT / "data" / "cache" / "tinystories_tinylm_v1"
-RUNS_DIR = EXPERIMENT_DIR / "runs" / "person_b"
-AGGREGATE_DIR = EXPERIMENT_DIR / "aggregate"
+# Repository paths remain the defaults so the completed screening runs are
+# unchanged. Extended runs can redirect generated artifacts to a writable
+# data disk through environment variables.
+DATA_DIR = Path(
+    os.environ.get(
+        "TINYSTORIES_DATA_DIR", str(ROOT / "data" / "raw" / "tinystories" / "data")
+    )
+)
+TOKENIZER_DIR = Path(
+    os.environ.get(
+        "TINYSTORIES_TOKENIZER_DIR", str(ROOT / "data" / "tokenizer" / "gpt2")
+    )
+)
+CACHE_DIR = Path(
+    os.environ.get(
+        "TINYSTORIES_CACHE_DIR", str(ROOT / "data" / "cache" / "tinystories_tinylm_v1")
+    )
+)
+RUNS_DIR = Path(
+    os.environ.get("PERSON_B_RUNS_DIR", str(EXPERIMENT_DIR / "runs" / "person_b"))
+)
+AGGREGATE_DIR = Path(
+    os.environ.get("PERSON_B_AGGREGATE_DIR", str(EXPERIMENT_DIR / "aggregate"))
+)
 
 sys.path.insert(0, str(ROOT))
 from b_role_experiments import MemformerSegmentAttention  # noqa: E402
@@ -59,6 +78,15 @@ def load_profile() -> dict[str, Any]:
 def stable_hash(value: Any) -> str:
     payload = json.dumps(value, sort_keys=True, ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def path_for_record(path: Path) -> str:
+    """Prefer repository-relative paths, but support external data disks."""
+
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
 
 
 def atomic_json(path: Path, payload: dict[str, Any]) -> None:
@@ -180,7 +208,7 @@ def build_token_cache(
         "rows_consumed": rows,
         "dtype": "int32",
         "bytes": binary.stat().st_size,
-        "parquet_files": [str(path.relative_to(ROOT)) for path in ordered_parquet_files(split)],
+        "parquet_files": [path_for_record(path) for path in ordered_parquet_files(split)],
         "tokenizer": "openai-community/gpt2",
         "tokenizer_revision": "607a30d783dfa663caf39e06633721c8d4cfcd7e",
         "eos_token_id": tokenizer.eos_token_id,
@@ -544,6 +572,8 @@ class TrainRequest:
     gradient_accumulation_steps: int
     validation_probe_tokens: int
     validation_batch_sequences: int
+    validation_interval_tokens: int
+    checkpoint_interval_tokens: int
     full_validation: bool
     save_checkpoint: bool
 
@@ -608,6 +638,10 @@ def run_training(request: TrainRequest, device: torch.device) -> dict[str, Any]:
         "execution_profile": profile["execution_profile"],
         "role": "person_b",
         "request": asdict(request),
+        "extended_storage_mode": bool(
+            RUNS_DIR != EXPERIMENT_DIR / "runs" / "person_b"
+            or CACHE_DIR != ROOT / "data" / "cache" / "tinystories_tinylm_v1"
+        ),
         "model": asdict(model_cfg),
         "parameters": parameters,
         "optimizer": {
@@ -621,6 +655,13 @@ def run_training(request: TrainRequest, device: torch.device) -> dict[str, Any]:
             "gradient_clip_norm": float(training_cfg["gradient_clip_norm"]),
         },
         "effective_batch_tokens": effective_tokens,
+        "storage": {
+            "data_dir": str(DATA_DIR),
+            "tokenizer_dir": str(TOKENIZER_DIR),
+            "cache_dir": str(CACHE_DIR),
+            "runs_dir": str(RUNS_DIR),
+            "aggregate_dir": str(AGGREGATE_DIR),
+        },
         "train_cache": train_metadata,
         "validation_cache": validation_metadata,
         "data_order": "pinned_parquet_order_sequential_512_token_blocks",
@@ -660,9 +701,9 @@ def run_training(request: TrainRequest, device: torch.device) -> dict[str, Any]:
     tokens_seen = 0
     block_cursor = 0
     started = time.perf_counter()
-    validation_interval = int(training_cfg["validation_interval_tokens"])
+    validation_interval = int(request.validation_interval_tokens)
     next_validation = validation_interval
-    checkpoint_interval = int(training_cfg["checkpoint_interval_tokens"])
+    checkpoint_interval = int(request.checkpoint_interval_tokens)
     next_checkpoint = checkpoint_interval
     status = "ok"
     failure: str | None = None
@@ -1029,7 +1070,7 @@ def aggregate() -> dict[str, Any]:
         "runs": screening_runs,
         "excluded_runs": excluded_runs,
         "other_runs": other_runs,
-        "selection_manifest": str(selection_path.relative_to(ROOT))
+        "selection_manifest": path_for_record(selection_path)
         if selection_path.exists()
         else None,
     }
@@ -1069,6 +1110,8 @@ def parse_args() -> argparse.Namespace:
     train.add_argument("--gradient-accumulation-steps", type=int, default=4)
     train.add_argument("--validation-probe-tokens", type=int, default=262_144)
     train.add_argument("--validation-batch-sequences", type=int, default=8)
+    train.add_argument("--validation-interval-tokens", type=int, default=1_048_576)
+    train.add_argument("--checkpoint-interval-tokens", type=int, default=1_048_576)
     train.add_argument("--full-validation", action="store_true")
     train.add_argument("--no-checkpoint", action="store_true")
 
@@ -1116,6 +1159,8 @@ def main() -> None:
             gradient_accumulation_steps=args.gradient_accumulation_steps,
             validation_probe_tokens=args.validation_probe_tokens,
             validation_batch_sequences=args.validation_batch_sequences,
+            validation_interval_tokens=args.validation_interval_tokens,
+            checkpoint_interval_tokens=args.checkpoint_interval_tokens,
             full_validation=args.full_validation,
             save_checkpoint=not args.no_checkpoint,
         )

@@ -14,6 +14,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,14 @@ from run_person_b import autocast_context, environment_record
 
 ROOT = Path(__file__).resolve().parents[2]
 EXP = Path(__file__).resolve().parent
-AGG = EXP / "aggregate"
+AGG = Path(os.environ.get("PERSON_B_AGGREGATE_DIR", str(EXP / "aggregate")))
+
+
+def path_for_record(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
 
 
 def stable_hash(value: Any) -> str:
@@ -69,7 +77,7 @@ def run(args: argparse.Namespace, device: torch.device) -> dict[str, Any]:
                     "method": method,
                     "method_value": method_value,
                     "run_id": run_id,
-                    "source_checkpoint": str(checkpoint.relative_to(ROOT)),
+                    "source_checkpoint": path_for_record(checkpoint),
                     "sequence_length": length,
                     "perturb_tokens": int(replacement.shape[1]),
                     "tail_tokens_measured": int(tail.shape[1]),

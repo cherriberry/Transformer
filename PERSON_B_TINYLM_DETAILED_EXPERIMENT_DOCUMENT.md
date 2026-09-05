@@ -1,21 +1,22 @@
 # B 角色详细实验文档：TinyLM + TinyStories 上的 Longformer 与 Memformer 比较
 
 实验日期：2026-09-04  
+文档更新时间：2026-09-05
 协议版本：`tinystories_tinylm_v1`  
 执行配置：`three_day_validation_screening_v1`  
 实验角色：B（Longformer + Memformer）  
 实验状态：已完成 validation screening  
 硬件：NVIDIA GeForce RTX 4090 24GB，实际运行时仅可见 1 张 GPU  
 
-> 本文记录的是统一 TinyLM/TinyStories 条件下的短预算验证集筛选实验。它不是 Longformer 或 Memformer 原论文的严格复现，也不是充分收敛、多随机种子、论文级最终实验。文中把实测结果、理论机制和仍待验证的推断分开陈述。
+> 本文记录的是统一 TinyLM/TinyStories 条件下的 10M-token 验证集筛选实验，以及随后完成的 100M-token 扩展。它不是 Longformer 或 Memformer 原论文的严格复现，也不是多随机种子、充分收敛或论文级最终实验。文中把实测结果、理论机制和仍待验证的推断分开陈述。
 
 只需快速查看关键结果时，见 [PERSON_B_TINYLM_SIMPLE_RESULT_REPORT.md](PERSON_B_TINYLM_SIMPLE_RESULT_REPORT.md)。
 
 ## 摘要
 
-本实验比较两种不同的长历史处理路径：Longformer 使用固定因果局部窗口，让信息通过堆叠层逐步向后传播；Memformer 使用固定数量的 recurrent memory slots，把上一 segment 的压缩状态传给下一 segment。两个方法共享相同 TinyLM 非 attention 主干、TinyStories token 顺序、10M training-token 预算、优化器、有效 batch 和随机种子。
+本实验比较两种不同的长历史处理路径：Longformer 使用固定因果局部窗口，让信息通过堆叠层逐步向后传播；Memformer 使用固定数量的 recurrent memory slots，把上一 segment 的压缩状态传给下一 segment。两个方法共享相同 TinyLM 非 attention 主干、TinyStories token 顺序、优化器、有效 batch 和随机种子；先完成 10M-token screening，随后在数据盘上将同一冻结配置扩展到 100M tokens。
 
-在本次 `seed=17`、训练上下文 512、10M-token screening 中：
+在本次 `seed=17`、训练上下文 512、10M-token screening 中（100M 扩展结果见第 8.3/9.1 节）：
 
 | 指标 | Longformer | Memformer | Memformer 相对变化 |
 |---|---:|---:|---:|
@@ -29,6 +30,8 @@
 | 10M-token 训练阶段墙钟时间 | 714.10 s | **635.58 s** | -11.00% |
 
 在这些限定条件下，Memformer 表现出更好的 validation NLL/PPL、训练流程吞吐和训练运行峰值显存，但它使用了约 11.8% 更多参数。另一方面，在 batch=1 的冻结 checkpoint 前向测试中，当前 Memformer Python/PyTorch adapter 明显慢于 Longformer；两者在 512 到 32,768 的所有测试长度上又都慢于高度优化的 PyTorch SDPA Full-Attention 参考。这说明较低的理论复杂度不会自动转化为较低的端到端延迟，kernel、Python 循环、segment 调度和词表投影都可能成为主导成本。
+
+随后完成的 100M-token 扩展改变了质量排序，但没有改变资源侧趋势：Longformer 完整 validation NLL/PPL 为 `1.807748/6.0967`，Memformer 为 `1.865966/6.4622`，前者分别低约 3.22% 和 5.99%；Memformer 的训练流程吞吐仍高约 14.03%，训练时间低约 12.31%，peak allocated 低约 61.28%。因此，10M 时的 Memformer 质量优势不能外推为充分训练后的普遍优势。
 
 跨 segment 机制诊断进一步显示：Longformer 在 6 层、left window=128 时，单 token 的理论最大传播距离约为 768；当序列长度达到 1,024 后，开头 128-token 扰动对末端 logits 的影响归零。Memformer 到长度 4,096 仍保留非零影响，但影响明显衰减。该结果只证明两者存在不同的信息通路，不证明 Memformer 能无损找回早期事实。
 
@@ -50,7 +53,7 @@ B 角色的任务不是判断六种方法的总排名，而是回答一个较窄
 
 本实验围绕以下四个问题展开：
 
-1. **质量问题（RQ1）**：相同 TinyLM 公共主干与 10M-token 训练预算下，哪种机制得到更低的 TinyStories validation NLL/PPL？
+1. **质量问题（RQ1）**：相同 TinyLM 公共主干下，在 10M 与 100M training-token 预算时，哪种机制得到更低的 TinyStories validation NLL/PPL；质量排序是否依赖训练预算？
 2. **训练资源问题（RQ2）**：在 RTX 4090 上，两种实现的训练流程吞吐、墙钟时间和峰值显存有何差异？
 3. **长度扩展问题（RQ3）**：冻结 checkpoint 在 512 至 32,768 token 前向时，端到端 latency 和 attention-only latency/memory 如何变化？
 4. **信息通路问题（RQ4）**：当早期 token 被替换时，末端输出是否仍会变化；这种变化是否符合局部传播上限与 recurrent state 的结构预期？
@@ -383,7 +386,30 @@ slots=64 相对 slots=32：
 
 主实验在 1M token 处的 probe 值优于对应 pilot，主要原因是学习率 schedule 按 run 总步数计算：128-step pilot 已接近自身 cosine schedule 末端，而 1,221-step main 在第 128 步仍处于高学习率阶段。不能把 pilot 与 main 的同 token 位置当作完全相同训练轨迹。
 
+### 8.3 100M-token 扩展训练
+
+为判断 10M screening 的质量排序是否只是短预算现象，在不改变模型结构、seed=17、context=512、effective batch=8,192 和优化器设置的前提下，两个冻结配置分别从初始化重新训练到 100,000,000 prediction tokens（不是从 10M checkpoint 接续）。扩展 run 使用数据盘 `/root/autodl-tmp/26summerBDMI_transformer/`，每约 10M tokens 保存一个恢复点；两者均完成 12,208 个 optimizer steps，状态为 `ok`。
+
+| Training tokens | Longformer probe NLL / PPL | Memformer probe NLL / PPL |
+|---:|---:|---:|
+| 10,000,000 | **2.807726 / 16.5722** | 2.804452 / **16.5180** |
+| 20,000,000 | **2.385051 / 10.8596** | 2.417096 / 11.2132 |
+| 30,000,000 | **2.226244 / 9.2650** | 2.276690 / 9.7444 |
+| 40,000,000 | **2.094200 / 8.1189** | 2.152978 / 8.6105 |
+| 50,000,000 | **2.038609 / 7.6799** | 2.095804 / 8.1320 |
+| 60,000,000 | **1.954628 / 7.0613** | 2.009316 / 7.4582 |
+| 70,000,000 | **1.914094 / 6.7808** | 1.969302 / 7.1657 |
+| 80,000,000 | **1.877639 / 6.5381** | 1.933920 / 6.9166 |
+| 90,000,000 | **1.852116 / 6.3733** | 1.908874 / 6.7455 |
+| 100,000,000 | **1.838830 / 6.2892** | 1.897173 / 6.6670 |
+
+从 20M 开始，Longformer 的 probe NLL 在每个观测点都低于 Memformer；100M 时差距仍在扩大。10M 扩展 run 的数值不能与前一节独立 10M main 逐项当作同一条训练轨迹，因为 cosine 学习率 schedule 的总步数从 1,221 改为 12,208；这里的比较重点是同一 100M 预算内的趋势，而不是跨 run 的绝对值重放。两条曲线在 100M 末端仍未显示反弹，因此 100M 是更充分的比较预算，但仍不能称为全局收敛或最佳训练状态。
+
+扩展 run 的配置哈希为：Longformer `42a5a253796da3f7efb77075423a122ced2d31675fde8a6b011f1dd54503afca`，Memformer `7c44cb7c3030521746bbe417a688558f4ff79a808d2e5f6cbae3f16b22f09a0a`。完整原始摘要分别位于数据盘的 `runs/person_b_extended/extended100m_longformer_w128_s17/summary.json` 和 `runs/person_b_extended/extended100m_memformer_s128_m64_s17/summary.json`。
+
 ## 9. 完整 Validation 质量结果
+
+本节先给出 10M-token screening 的完整 validation；100M-token 扩展单列于第 9.1 节，以免把两个不同学习率总步数的 run 混成一条训练轨迹。
 
 | 方法 | 最终 probe NLL / PPL | 完整 validation predictions | 完整 NLL | 完整 PPL | Full-validation 时间 |
 |---|---:|---:|---:|---:|---:|
@@ -398,6 +424,17 @@ slots=64 相对 slots=32：
 - PPL 绝对降低 0.672966，相对降低 3.76%。
 
 在本协议下可以说“Memformer 的 validation 质量略好”，但不能进一步断言差异具有统计显著性或来自 recurrent memory 本身，原因包括：只有一个 seed；Memformer 参数多 11.8%；TinyStories 主要由短故事组成；训练长度只有 512；没有总参数匹配消融。
+
+### 9.1 100M-token 扩展的完整 Validation
+
+100M 扩展的最后 checkpoint 同样完成了全量 validation（4,765,917 个有效 next-token predictions）。由于 probe 只抽取固定前缀，完整 validation 的 NLL 不要求与 probe 数值完全相同；两者用于 checkpoint 选择和最终全量核验的口径不同。
+
+| 方法 | 最终 probe NLL / PPL | 完整 validation predictions | 完整 NLL | 完整 PPL | Full-validation 时间 |
+|---|---:|---:|---:|---:|---:|
+| Longformer w=128 | 1.838830 / 6.289174 | 4,765,917 | **1.807748** | **6.096701** | 38.64 s |
+| Memformer s=128,m=64 | 1.897173 / 6.667023 | 4,765,917 | 1.865966 | 6.462175 | 40.03 s |
+
+相对 100M Longformer，Memformer 的完整 validation NLL 高 0.058218（约 **3.22%**），PPL 高 0.365473（约 **5.99%**）。这与 10M 独立 main 的排序相反：10M 时 Memformer 略优，100M 时 Longformer 略优。由于仍只有一个 seed、两者总参数不相等，不能把 100M 的反转解释为某种架构在所有训练规模或任务上的普遍优越性。
 
 ## 10. 训练流程效率与显存
 
@@ -416,6 +453,15 @@ Memformer 相对 Longformer：
 这一显存差异主要反映当前具体实现的 activation/intermediate behavior，而不只是 288 KiB 的 memory state。Longformer 的 `unfold` 局部窗口和 chunked score 路径在 backward 中保存了较大的中间张量；Memformer 每次只处理固定的 128-token segment 与 64 个槽。另一方面，Memformer 参数量更大，不能将低 run peak 简化成“所有场景都更省内存”。
 
 训练流程吞吐与后面的 batch=1 inference latency 看似方向相反，但两者不是同一个测量：训练值包含 context=512、micro-batch=4、backward、定期 probe 和 checkpoint；效率矩阵是 batch=1、inference mode 的单次完整前向。不同 batch、反向激活和调度成本会改变瓶颈。
+
+### 10.1 100M-token 扩展的训练效率与显存
+
+| 方法 | 训练 tokens | Steps | 流程吞吐 | 训练阶段墙钟 | Peak allocated | Peak reserved |
+|---|---:|---:|---:|---:|---:|---:|
+| Longformer w=128 | 100,000,000 | 12,208 | 14,743.77 tok/s | 6,782.53 s（113.04 min） | 6.80 GiB | 7.69 GiB |
+| Memformer s=128,m=64 | 100,000,000 | 12,208 | **16,813.01 tok/s** | **5,947.78 s（99.13 min）** | **2.63 GiB** | **3.93 GiB** |
+
+在相同 100M-token 预算下，Memformer 的流程吞吐高约 **14.03%**、墙钟时间低约 **12.31%**；peak allocated 低约 **61.28%**，peak reserved 低约 **48.92%**。这些资源趋势与 10M screening 一致，但它们仍是当前 Python/PyTorch 实现、单张 RTX 4090 和特定 batch 配置下的实测结果，不应直接外推到 fused kernel 或其他硬件。
 
 ## 11. 冻结 Checkpoint 端到端长度效率
 
@@ -564,19 +610,21 @@ ValueError: position exceeds configured RoPE maximum
 
 ### 15.1 本轮可以得出的结论
 
-1. 两种 protocol adapter 都通过因果性、梯度和状态正确性检查，并能在统一 TinyStories 流程中稳定完成 10M-token 训练及完整 validation。
-2. 在单 seed、短预算条件下，Memformer 的 validation NLL/PPL 略优于 Longformer；同时其参数量高 11.8%，所以这不是严格等参数的机制净效应。
-3. 当前训练实现中，Memformer 的 run-level peak memory 显著低于 Longformer，且统一流程吞吐高 12.35%。
-4. 当前 batch=1 inference adapter 中，Longformer 比 Memformer 快，但两者均慢于优化后的 Full SDPA；理论复杂度优势尚未转化为端到端速度优势。
-5. Attention-only 测试显示 Memformer 在长序列下使用较低的工作内存，但付出明显更高 latency。
-6. 机制扰动测试验证了有限局部传播与跨 segment recurrent state 是两种不同的信息通路。
+1. 两种 protocol adapter 都通过因果性、梯度和状态正确性检查，并能在统一 TinyStories 流程中稳定完成 10M 与 100M-token 训练及完整 validation。
+2. 10M-token 独立 screening 中，Memformer 的 validation NLL/PPL 略优于 Longformer；同一冻结配置扩展到 100M tokens 后，Longformer 的完整 validation NLL/PPL 反而低约 3.22%/5.99%。质量排序依赖训练预算，不能由 10M 结果外推。
+3. Memformer 的参数量高 11.83%，所以无论 10M 还是 100M，质量差异都不是严格等参数的机制净效应。
+4. 在 10M 和 100M 两种预算下，当前训练实现中 Memformer 的流程吞吐更高、run-level peak memory 更低；100M 时吞吐高约 14.03%，peak allocated 低约 61.28%。
+5. 当前 batch=1 inference adapter 中，Longformer 比 Memformer 快，但两者均慢于优化后的 Full SDPA；理论复杂度优势尚未转化为端到端速度优势。
+6. Attention-only 测试显示 Memformer 在长序列下使用较低的工作内存，但付出明显更高 latency。
+7. 机制扰动测试验证了有限局部传播与跨 segment recurrent state 是两种不同的信息通路。
+8. 100M run 的最后 checkpoint 是本次观测到的最佳 probe checkpoint，且曲线尚未反弹；这说明训练稳定并达到可比较 validation，但不等于已经找到全局最佳或充分收敛状态。
 
 ### 15.2 两种架构在本实现中的优缺点
 
 | 方法 | 当前证据中的优势 | 当前证据中的代价/风险 |
 |---|---|---|
-| Longformer | 参数更少；结构直接；保留最近窗口的 token 级路径；batch=1 前向明显快于当前 Memformer adapter | 无 global token 时远距可达性受层数×窗口硬限制；当前训练实现峰值显存较高；未融合路径仍慢于 Full SDPA |
-| Memformer | validation 略好；训练流程吞吐更高；训练 run peak 和 attention-only 长序列内存更低；结构上可跨任意已处理 segment | 参数多 11.8%；固定槽反复压缩可能丢细节；所有槽始终计算；Python segment 循环导致 inference latency 高；当前 wrapper 不跨独立 forward 持久化 state |
+| Longformer | 参数更少；结构直接；保留最近窗口的 token 级路径；100M 预算下 validation 更好；batch=1 前向明显快于当前 Memformer adapter | 无 global token 时远距可达性受层数×窗口硬限制；当前训练实现峰值显存较高；未融合路径仍慢于 Full SDPA |
+| Memformer | 10M screening 质量略好；在 10M/100M 均有更高训练流程吞吐、更低训练 run peak 和更低 attention-only 长序列内存；结构上可跨任意已处理 segment | 参数多 11.8%；100M 质量落后于 Longformer；固定槽反复压缩可能丢细节；所有槽始终计算；Python segment 循环导致 inference latency 高；当前 wrapper 不跨独立 forward 持久化 state |
 
 ### 15.3 与拟议创新机制的关系
 
@@ -595,7 +643,7 @@ ValueError: position exceeds configured RoPE maximum
 本文结论必须受以下限制约束：
 
 1. **单随机种子。** 只有 seed 17，没有均值、标准差或显著性检验。
-2. **短训练预算。** 10M tokens 只用于 screening；validation 曲线仍在下降，不能称为收敛。
+2. **尚未充分收敛。** 10M 是 screening 预算，100M 扩展虽显著更充分，但两条 validation probe 曲线在末端仍在下降，且只有一个 seed，不能称为全局最佳或充分收敛。
 3. **训练上下文只有 512。** 1K–32K 只测 frozen forward 效率；4K 扰动只测信息影响，均不是长上下文质量结果。
 4. **TinyStories 天然较短。** 跨故事 packing 增加计算长度，但不构造可信的跨段事实依赖。
 5. **总参数不匹配。** Memformer 多 11.8% 参数，质量差异可能部分来自容量。
@@ -612,7 +660,7 @@ ValueError: position exceeds configured RoPE maximum
 按研究价值和依赖关系，建议依次完成：
 
 1. **补齐 seeds 29、43。** 使用已经冻结的 w128 与 s128/m64，不重新调参；报告均值、标准差和 paired seed 差异。
-2. **增加训练预算。** 至少扩展到 50M 或 100M tokens，观察质量差距是否保持、缩小或反转，并保存达到相同 NLL 所需 token/时间。
+2. **增加训练预算（本轮已完成 100M 扩展）。** 100M 结果显示质量排序从 10M 的 Memformer 略优反转为 Longformer 略优，同时资源优势仍偏向 Memformer；若需要收敛证据，应在冻结协议下继续到更高预算或预先定义停止标准。
 3. **增加真正的长依赖任务。** 采用跨 segment copy、passkey、associative recall 和 `A -> 长 B -> 回到 A` 话题切换任务；报告 exact match、不同 delay 下的衰减和干扰错误。
 4. **做参数匹配消融。** 一组保持公共主干，一组调整 FFN 使总参数相近，从而区分机制收益与额外容量收益。
 5. **做容量曲线。** Longformer window 取 64/128/256；Memformer slots 取 16/32/64/128，segment 取 64/128/256；绘制质量—吞吐—显存 Pareto，而不是只比较单点。
@@ -624,6 +672,22 @@ ValueError: position exceeds configured RoPE maximum
 ## 18. 复现命令
 
 以下命令均从仓库根目录执行。三人并行部署时，每人应使用不同 `CUDA_VISIBLE_DEVICES`；本文 B 角色结果在单张可见 RTX 4090 的 `cuda:0` 上顺序运行。
+
+### 18.0 扩展实验的数据盘路径
+
+当前已完成的 screening 结果默认使用仓库内的 `data/`、`runs/person_b/`
+和 `aggregate/` 路径。若继续进行 50M/100M token 或多 seed 扩展，可在运行
+前设置：
+
+```bash
+export TINYSTORIES_CACHE_DIR=/root/autodl-tmp/26summerBDMI_transformer/data/cache/tinystories_tinylm_v1
+export PERSON_B_RUNS_DIR=/root/autodl-tmp/26summerBDMI_transformer/runs/person_b_extended
+export PERSON_B_AGGREGATE_DIR=/root/autodl-tmp/26summerBDMI_transformer/aggregate
+```
+
+运行器会把这些路径写入 resolved config；未设置变量时行为与本轮正式
+screening 完全相同。扩展 run 必须使用新的 run ID，并建议使用
+`--checkpoint-interval-tokens 10000000`，避免产生过多中间 checkpoint。
 
 ### 18.1 安装与数据准备
 
@@ -750,6 +814,11 @@ python experiments/tinystories_tinylm_v1/plot_person_b_results.py
 - Longformer：`experiments/tinystories_tinylm_v1/runs/person_b/main_b_longformer_w128_s17/`
 - Memformer：`experiments/tinystories_tinylm_v1/runs/person_b/main_b_memformer_s128_m64_s17/`
 
+100M 扩展原始记录（数据盘）：
+
+- Longformer：`/root/autodl-tmp/26summerBDMI_transformer/runs/person_b_extended/extended100m_longformer_w128_s17/`
+- Memformer：`/root/autodl-tmp/26summerBDMI_transformer/runs/person_b_extended/extended100m_memformer_s128_m64_s17/`
+
 每个 main run 目录包含 resolved config、config hash、逐 step JSONL、summary 和按 token 间隔保存的 checkpoint。原始 JSON/JSONL 是数值证据源，本文表格为其可读化汇总。
 
 ### 19.5 关键文件 SHA-256（本次交付）
@@ -768,8 +837,8 @@ python experiments/tinystories_tinylm_v1/plot_person_b_results.py
 
 ## 20. 最终结论
 
-在统一 TinyLM/TinyStories、单 seed、10M-token validation screening 中，固定槽 Memformer 相对固定局部窗口 Longformer 获得了较低的 validation NLL/PPL、更高的训练流程吞吐和更低的 run-level peak memory，但使用更多参数，并在当前 batch=1 Python/PyTorch inference adapter 上明显更慢。Longformer 参数更少、当前前向实现更快，但在无 global token 时具有明确的有限层局部传播边界。
+在统一 TinyLM/TinyStories、单 seed、context=512 的实验中，10M-token screening 与 100M-token 扩展给出了不同的质量排序：10M 时固定槽 Memformer 的 validation NLL/PPL 略低，100M 时固定局部窗口 Longformer 的完整 validation NLL/PPL 反超。Memformer 在两种预算下都显示出更高的训练流程吞吐和更低的 run-level peak memory，但使用更多参数；当前 batch=1 Python/PyTorch inference adapter 中 Longformer 明显更快。Longformer 在无 global token 时具有明确的有限层局部传播边界，Memformer 则建立了跨 segment 的压缩信息通路但存在衰减。
 
 因此，本轮最稳妥的结论不是“Memformer 全面优于 Longformer”，而是：
 
-> 固定 recurrent memory 在当前短预算实验中提供了有价值的质量与训练内存折中，并建立了超出局部传播范围的信息通路；它同时带来额外参数、压缩衰减和较高工程调度延迟。要评价真正的长期细节记忆和动态容量创新，仍必须补充多 seed、长依赖检索任务、参数匹配以及优化 kernel 实验。
+> 固定 recurrent memory 在当前实现中稳定提供了训练吞吐、训练显存和跨 segment 信息通路方面的优势，但 validation 质量会随训练预算改变：短预算下 Memformer 略占优，100M 预算下 Longformer 略占优。Memformer 同时带来额外参数、压缩衰减和较高工程调度延迟。要评价真正的长期细节记忆和动态容量创新，仍必须补充多 seed、长依赖检索任务、参数匹配以及优化 kernel 实验。

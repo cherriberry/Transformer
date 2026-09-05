@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import matplotlib
@@ -13,8 +14,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 EXP = Path(__file__).resolve().parent
-RUNS = EXP / "runs" / "person_b"
-AGG = EXP / "aggregate"
+RUNS = Path(os.environ.get("PERSON_B_RUNS_DIR", str(EXP / "runs" / "person_b")))
+AGG = Path(os.environ.get("PERSON_B_AGGREGATE_DIR", str(EXP / "aggregate")))
 
 
 def load_metrics(run_id: str) -> list[dict]:

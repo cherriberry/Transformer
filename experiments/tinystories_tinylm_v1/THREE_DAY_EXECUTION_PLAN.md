@@ -3,9 +3,15 @@
 版本：`three_day_validation_screening_v1`  
 性质：时间受限的可比验证集筛选，不是最终论文级主实验
 
-执行记录：B 角色（Longformer + Memformer）已完成；结果见根目录
+执行记录：B 角色（Longformer + Memformer）已完成 10M screening，并已完成
+同一冻结配置的 100M-token 扩展；结果见根目录
 `PERSON_B_TINYLM_REPORT.md`，原始记录见本目录 `aggregate/` 与
 `runs/person_b/`。
+
+后续超出三天版 10M screening 的扩展训练使用可写数据盘
+`/root/autodl-tmp/26summerBDMI_transformer/` 保存新增 token cache、checkpoint
+和日志。现有正式结果仍保留在仓库内；扩展 run 使用独立 ID，默认每 10M
+tokens 保存恢复点，并保留最佳与最终 checkpoint，避免覆盖既有证据或耗尽根分区。
 
 ## 1. 实验目标
 
