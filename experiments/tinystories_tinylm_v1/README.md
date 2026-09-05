@@ -1,5 +1,13 @@
 # TinyStories + TinyLM experiment
 
+## Person-A/Person-C execution handoff
+
+Before implementing Linformer, Performer, Reformer, Full-Attention reference,
+or TinyLM/RoPE Keyformer evaluation, read the repository-level
+[HANDOFF_ROLES_A_C.md](../../HANDOFF_ROLES_A_C.md). It is the executable
+handoff: it defines the frozen protocol, runner interfaces, correctness tests,
+raw JSON schema, required metrics, and the allowed interpretation of results.
+
 This is the active time-boxed screening protocol for using the repository's from-scratch
 `TinyLM-long-v1` with `roneneldan/TinyStories`. The older
 `long_context_10m_v1` directory is retained as historical PG-19/synthetic-pilot

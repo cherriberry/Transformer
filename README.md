@@ -7,6 +7,11 @@ The active training-data protocol is now
 `TinyLM-long-v1` trained on pinned `roneneldan/TinyStories` data. See
 `TINYLM_EXPERIMENT_QA.md` for decisions and open experiment questions.
 
+For a directly executable handoff for the unfinished Person-A and Person-C
+work (code boundaries, correctness gates, metrics, storage schema, commands,
+and comparison rules), read [HANDOFF_ROLES_A_C.md](HANDOFF_ROLES_A_C.md).
+The root `HANDOFF.md` is historical microbenchmark documentation.
+
 PG-19 is no longer part of the active experiment. The existing
 `long_context_10m_v1` files and results are retained only as historical
 provenance and must not be relabeled as TinyStories results.
