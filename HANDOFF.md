@@ -1,4 +1,10 @@
-# Handoff: Efficient Transformer Benchmark
+# Handoff: Efficient Transformer Benchmark (historical)
+
+> 本文件主要记录早期 RTX 4070 attention 微基准，不能作为当前 TinyStories/TinyLM
+> 训练实验的执行说明。要接手角色 A（Linformer + Performer）或角色 C
+>（Reformer + Keyformer），请先阅读
+> [HANDOFF_ROLES_A_C.md](HANDOFF_ROLES_A_C.md)。角色 B 的当前协议和结果见
+> `experiments/tinystories_tinylm_v1/` 与根目录的 `PERSON_B_TINYLM_*` 报告。
 
 ## Objective and current state
 
