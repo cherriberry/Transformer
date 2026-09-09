@@ -77,6 +77,7 @@ class SelectiveMemoryStressGenerator:
         delay_buckets: tuple[int, ...] = (1, 2, 4, 8),
         noise_buckets: tuple[int, ...] = (0, 1, 2, 4),
         payload_tokens: int = 12,
+        answer_leading_space: bool = False,
     ) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(
             tokenizer_dir, local_files_only=True
@@ -89,6 +90,7 @@ class SelectiveMemoryStressGenerator:
         self.seed = int(seed)
         self.delay_buckets = tuple(int(value) for value in delay_buckets)
         self.noise_buckets = tuple(int(value) for value in noise_buckets)
+        self.answer_leading_space = bool(answer_leading_space)
         if not self.delay_buckets or min(self.delay_buckets) <= 0:
             raise ValueError("delay buckets must be positive")
         if not self.noise_buckets or min(self.noise_buckets) < 0:
@@ -227,7 +229,8 @@ class SelectiveMemoryStressGenerator:
         kinds.append("filler")
 
         query_ids = self.encode(f"What does {name} like?")
-        answer_ids = self.encode(value) + (self.eos_token_id,)
+        answer_text = (" " if self.answer_leading_space else "") + value
+        answer_ids = self.encode(answer_text) + (self.eos_token_id,)
         rounds.append(
             MemoryRound(
                 input_ids=query_ids + answer_ids,

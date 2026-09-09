@@ -7,6 +7,7 @@
 | 文档 | 内容 | 状态 |
 |---|---|---|
 | [TINYLM_MOE_UNIFIED_EXPERIMENT_REPORT.md](TINYLM_MOE_UNIFIED_EXPERIMENT_REPORT.md) | 六种变体的全六层 4-expert Top-1 dropless MoE 结果，以及 Dense 对照 | 最新 MoE 主报告 |
+| [TINYLM_SIX_FORMER_OVERALL_REPORT.md](TINYLM_SIX_FORMER_OVERALL_REPORT.md) | Dense、100M 扩展、MoE 与 Keyformer 的六架构总体分析 | 最新总体报告 |
 | [C_UNIFIED_RESULT_REPORT_V2.md](C_UNIFIED_RESULT_REPORT_V2.md) | Full Attention、Causal LSH Reformer、Keyformer 的 protocol v2 结果 | C 当前结果 |
 | [PERSON_B_TINYLM_REPORT_UNIFIED_20260906.md](PERSON_B_TINYLM_REPORT_UNIFIED_20260906.md) | A+B 四种 Dense backbone、三 seed 统一结果 | Dense 主报告 |
 | [PERSON_B_TINYLM_SIMPLE_RESULT_REPORT_UNIFIED_20260906.md](PERSON_B_TINYLM_SIMPLE_RESULT_REPORT_UNIFIED_20260906.md) | 上述 A+B 结果的简版 | 快速阅读 |

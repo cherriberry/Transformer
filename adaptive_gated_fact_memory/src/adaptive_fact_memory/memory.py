@@ -573,6 +573,7 @@ class SharedMemoryFusion(nn.Module):
         token_mask: Tensor,
         *,
         fixed_gate: bool = False,
+        gate_override: float | None = None,
     ) -> tuple[Tensor, Tensor]:
         payload_embeddings = token_embedding(selection.payload_ids)
         payload_denominator = selection.payload_mask.sum(dim=-1, keepdim=True).clamp_min(1)
@@ -593,6 +594,11 @@ class SharedMemoryFusion(nn.Module):
         has_memory = selection.valid.any(dim=-1)[:, None, None]
         context = context * has_memory
         learned_gate = torch.sigmoid(self.gate(torch.cat((hidden, context), dim=-1)))
-        gate = torch.ones_like(learned_gate) if fixed_gate else learned_gate
+        if gate_override is not None:
+            if not 0.0 <= gate_override <= 1.0:
+                raise ValueError("gate_override must be in [0, 1]")
+            gate = torch.full_like(learned_gate, float(gate_override))
+        else:
+            gate = torch.ones_like(learned_gate) if fixed_gate else learned_gate
         fused = self.to_out(context) * gate * token_mask[..., None]
         return fused, gate * has_memory

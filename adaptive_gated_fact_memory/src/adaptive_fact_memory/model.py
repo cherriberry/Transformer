@@ -55,6 +55,7 @@ class DecoderBlock(nn.Module):
         memory_visibility: Tensor,
         memory_enabled: bool = True,
         fixed_memory_fusion: bool = False,
+        fusion_gate_override: float | None = None,
     ):
         local, new_cache, attention_diagnostics = self.local_attention.forward_chunk(
             self.local_norm(hidden), cache, rotary, position_ids, token_mask
@@ -68,6 +69,7 @@ class DecoderBlock(nn.Module):
                 token_embedding,
                 memory_visibility,
                 fixed_gate=fixed_memory_fusion,
+                gate_override=fusion_gate_override,
             )
             hidden = hidden + self.dropout(memory_residual)
         ffn = self.ffn_out(F.gelu(self.ffn_in(self.ffn_norm(hidden))))
@@ -97,6 +99,7 @@ class AdaptiveFactMemoryLM(nn.Module):
         config: FactMemoryConfig = FactMemoryConfig(),
         *,
         memory_policy: str = "gated",
+        fusion_gate_override: float | None = None,
     ):
         super().__init__()
         if memory_policy not in self.VALID_MEMORY_POLICIES:
@@ -106,6 +109,7 @@ class AdaptiveFactMemoryLM(nn.Module):
             )
         self.config = config
         self.memory_policy = memory_policy
+        self.fusion_gate_override = fusion_gate_override
         self.token_embedding = nn.Embedding(config.vocab_size, config.hidden_size)
         self.rotary = RotaryEmbedding(config.head_dim, config.rope_max_position)
         fusion_layers = set(config.memory_fusion_layers)
@@ -398,6 +402,7 @@ class AdaptiveFactMemoryLM(nn.Module):
                 memory_visibility,
                 memory_enabled=memory_enabled,
                 fixed_memory_fusion=self.memory_policy in {"fixed", "fixed_lru"},
+                fusion_gate_override=self.fusion_gate_override,
             )
             new_caches.append(new_cache)
             layer_diagnostics.append(attention_diagnostics)

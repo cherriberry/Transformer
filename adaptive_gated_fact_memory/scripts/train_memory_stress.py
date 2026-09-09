@@ -156,6 +156,7 @@ def load_stress_model(
     memory_policy: str,
     memory_slots: int,
     memory_read_top_k: int,
+    fusion_gate_override: float | None = None,
 ) -> AdaptiveFactMemoryLM:
     config = FactMemoryConfig(
         memory_slots=memory_slots,
@@ -171,7 +172,11 @@ def load_stress_model(
         write_threshold=0.1 if training else 0.5,
         retention_threshold=0.1 if training else 0.5,
     )
-    model = AdaptiveFactMemoryLM(config, memory_policy=memory_policy).to(device)
+    model = AdaptiveFactMemoryLM(
+        config,
+        memory_policy=memory_policy,
+        fusion_gate_override=fusion_gate_override,
+    ).to(device)
     checkpoint = torch.load(BACKBONE_CHECKPOINT, map_location="cpu", weights_only=False)
     state_dict = checkpoint.get("model", checkpoint)
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
@@ -741,6 +746,7 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
         noise_buckets=train_noise,
         segment_length=args.segment_length,
         payload_tokens=12,
+        answer_leading_space=args.answer_leading_space,
     )
     valid_generator = SelectiveMemoryStressGenerator(
         TOKENIZER_DIR,
@@ -751,6 +757,7 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
         noise_buckets=eval_noise,
         segment_length=args.segment_length,
         payload_tokens=12,
+        answer_leading_space=args.answer_leading_space,
     )
     model = load_stress_model(
         device,
@@ -758,6 +765,7 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
         memory_policy=args.memory_policy,
         memory_slots=args.memory_slots,
         memory_read_top_k=args.memory_read_top_k,
+        fusion_gate_override=args.fusion_gate_override,
     )
     model.train()
     optimizer = torch.optim.AdamW(
@@ -805,6 +813,8 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
             "hard_memory_training": False,
             "write_threshold_training": 0.1,
             "retention_threshold_training": 0.1,
+            "fusion_gate_override": args.fusion_gate_override,
+            "answer_leading_space": args.answer_leading_space,
         },
         "request": vars(args),
         "environment": environment_record(device),
@@ -920,6 +930,7 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
             memory_policy=args.memory_policy,
             memory_slots=args.memory_slots,
             memory_read_top_k=args.memory_read_top_k,
+            fusion_gate_override=args.fusion_gate_override,
         )
         eval_model.load_state_dict(model.state_dict())
         eval_model.eval()
@@ -977,6 +988,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--memory-slots", type=int, default=8)
     parser.add_argument("--memory-read-top-k", type=int, default=4)
+    parser.add_argument(
+        "--fusion-gate-override",
+        type=float,
+        default=None,
+        help="Use a fixed memory-fusion gate during training and evaluation.",
+    )
+    parser.add_argument(
+        "--answer-leading-space",
+        action="store_true",
+        help="Encode answer values with a leading space, matching fact payload tokenization.",
+    )
     parser.add_argument("--steps", type=int, default=2_000)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=2)
