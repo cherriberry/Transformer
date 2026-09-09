@@ -90,7 +90,7 @@ class AdaptiveFactMemoryLM(nn.Module):
     leaking assistant target tokens into the retrieval decision.
     """
 
-    VALID_MEMORY_POLICIES = ("gated", "fixed", "none")
+    VALID_MEMORY_POLICIES = ("gated", "fixed", "fixed_lru", "none")
 
     def __init__(
         self,
@@ -397,7 +397,7 @@ class AdaptiveFactMemoryLM(nn.Module):
                 self.token_embedding,
                 memory_visibility,
                 memory_enabled=memory_enabled,
-                fixed_memory_fusion=self.memory_policy == "fixed",
+                fixed_memory_fusion=self.memory_policy in {"fixed", "fixed_lru"},
             )
             new_caches.append(new_cache)
             layer_diagnostics.append(attention_diagnostics)
@@ -460,7 +460,7 @@ class AdaptiveFactMemoryLM(nn.Module):
         candidates = self.fact_extractor(
             final_hidden, input_ids, token_mask, source_roles
         )
-        if self.memory_policy == "fixed":
+        if self.memory_policy in {"fixed", "fixed_lru"}:
             # A fixed-memory ablation receives the same proposed spans and
             # slot capacity, but every valid proposal is written.  This also
             # removes the write probability from pending-candidate ranking.
@@ -487,7 +487,8 @@ class AdaptiveFactMemoryLM(nn.Module):
             buffered_candidates,
             commit_mask,
             hard=hard_memory,
-            fixed_policy=self.memory_policy == "fixed",
+            fixed_policy=self.memory_policy in {"fixed", "fixed_lru"},
+            fixed_eviction_policy="lru" if self.memory_policy == "fixed_lru" else None,
         )
         pending = pending.reset(commit_mask)
         next_position = state.next_position + token_mask.sum(dim=1)

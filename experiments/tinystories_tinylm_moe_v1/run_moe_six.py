@@ -49,13 +49,6 @@ from models.keyformer import (  # noqa: E402
     KVCacheState,
 )
 
-# The vendored Reformer source has optional imports.  The repository contains
-# minimal compatibility modules for configurations that disable those paths.
-sys.path.insert(0, str(ROOT / "reformer-pytorch"))
-sys.path.insert(0, str(ROOT / "compat_deps"))
-from reformer_pytorch import LSHSelfAttention  # noqa: E402
-
-
 TRAINABLE_METHODS = (
     "memformer",
     "linformer",
@@ -173,9 +166,9 @@ class SparseTop1MoE(torch.nn.Module):
             if token_indices.numel() == 0:
                 continue
             expert_input = flat.index_select(0, token_indices)
-            expert_output = expert(expert_input)
+            expert_output = expert(expert_input).to(combined.dtype)
             gate = top_probability.index_select(0, token_indices).to(
-                expert_output.dtype
+                combined.dtype
             )
             combined.index_add_(
                 0,
@@ -220,7 +213,15 @@ class DenseFFN(torch.nn.Module):
 
 
 class ReformerAttentionAdapter(torch.nn.Module):
-    """Causal LSH attention adapter using the vendored Reformer implementation."""
+    """Strictly causal fixed-hash LSH attention with shared query/key weights.
+
+    The commonly used sort-and-chunk implementation can let future-token bucket
+    occupancy change the candidate set for an earlier query.  Here every token
+    is independently hashed with fixed seeded rotations, and the attention mask
+    only admits same-bucket keys at positions not later than the query.  The
+    implementation materializes the mask at the 512-token training length; it
+    prioritizes causal correctness over a fused long-sequence kernel benchmark.
+    """
 
     def __init__(
         self,
@@ -234,26 +235,27 @@ class ReformerAttentionAdapter(torch.nn.Module):
             raise ValueError(
                 f"context={config.context} must be divisible by 2*bucket={2 * bucket_size}"
             )
-        self.hash_seed = 50_000 + seed * 101 + layer_index
-        self.backend = LSHSelfAttention(
-            dim=config.hidden_size,
-            heads=config.heads,
-            bucket_size=bucket_size,
-            n_hashes=4,
-            causal=True,
-            dim_head=config.hidden_size // config.heads,
-            attn_chunks=1,
-            random_rotations_per_head=False,
-            attend_across_buckets=True,
-            allow_duplicate_attention=True,
-            num_mem_kv=0,
-            one_value_head=False,
-            use_full_attn=False,
-            full_attn_thres=0,
-            post_attn_dropout=0.0,
-            dropout=0.0,
-            n_local_attn_heads=0,
+        self.dim = config.hidden_size
+        self.heads = config.heads
+        self.head_dim = config.hidden_size // config.heads
+        self.bucket_size = bucket_size
+        self.n_hashes = 4
+        self.to_qk = torch.nn.Linear(self.dim, self.dim, bias=False)
+        self.to_v = torch.nn.Linear(self.dim, self.dim, bias=False)
+        self.to_out = torch.nn.Linear(self.dim, self.dim, bias=False)
+        maximum_buckets = config.context // bucket_size
+        if maximum_buckets % 2:
+            raise ValueError("Reformer requires an even number of buckets")
+        generator = torch.Generator(device="cpu").manual_seed(
+            50_000 + seed * 101 + layer_index
         )
+        rotations = torch.randn(
+            self.n_hashes,
+            self.head_dim,
+            maximum_buckets // 2,
+            generator=generator,
+        )
+        self.register_buffer("hash_rotations", rotations, persistent=True)
 
     def forward(
         self,
@@ -261,24 +263,62 @@ class ReformerAttentionAdapter(torch.nn.Module):
         rotary_emb: dense.b.RotaryEmbedding,
         position_ids: torch.Tensor,
     ) -> torch.Tensor:
-        frequencies = torch.outer(position_ids.float(), rotary_emb.inv_freq)
-        reformer_rope = torch.cat(
-            (frequencies.sin(), frequencies.cos()), dim=-1
-        ).unsqueeze(0)
-        devices: list[int] = []
-        if value.device.type == "cuda":
-            devices = [
-                value.device.index
-                if value.device.index is not None
-                else torch.cuda.current_device()
-            ]
-        # Fixed per-layer rotations make hashes reproducible across validation
-        # calls and preserve the declared seed contract.
-        with torch.random.fork_rng(devices=devices):
-            torch.manual_seed(self.hash_seed)
-            if value.device.type == "cuda":
-                torch.cuda.manual_seed(self.hash_seed)
-            return self.backend(value, pos_emb=reformer_rope)
+        batch, tokens, _ = value.shape
+        if tokens % self.bucket_size:
+            raise ValueError(
+                f"sequence length {tokens} must divide bucket size {self.bucket_size}"
+            )
+        n_buckets = tokens // self.bucket_size
+        if n_buckets < 2 or n_buckets % 2:
+            raise ValueError("the number of Reformer buckets must be positive and even")
+
+        def split(projected: torch.Tensor) -> torch.Tensor:
+            return projected.view(
+                batch, tokens, self.heads, self.head_dim
+            ).transpose(1, 2)
+
+        query_key = split(self.to_qk(value))
+        projected_value = split(self.to_v(value))
+        query_key, _ = rotary_emb.apply_qk(
+            query_key, query_key, position_ids
+        )
+        rotations = self.hash_rotations[..., : n_buckets // 2].to(
+            query_key.dtype
+        )
+        projected_hashes = torch.einsum(
+            "bhnd,rdk->bhrnk", query_key, rotations
+        )
+        projected_hashes = torch.cat(
+            (projected_hashes, -projected_hashes), dim=-1
+        )
+        buckets = projected_hashes.argmax(dim=-1)
+        allowed = torch.zeros(
+            batch,
+            self.heads,
+            tokens,
+            tokens,
+            dtype=torch.bool,
+            device=value.device,
+        )
+        for hash_index in range(self.n_hashes):
+            identifiers = buckets[:, :, hash_index]
+            allowed |= identifiers.unsqueeze(-1) == identifiers.unsqueeze(-2)
+        causal = torch.ones(
+            tokens, tokens, dtype=torch.bool, device=value.device
+        ).tril()
+        allowed &= causal.view(1, 1, tokens, tokens)
+        scores = torch.matmul(
+            query_key, query_key.transpose(-1, -2)
+        ) * (self.head_dim**-0.5)
+        scores = scores.masked_fill(~allowed, torch.finfo(scores.dtype).min)
+        probabilities = torch.softmax(scores.float(), dim=-1).to(
+            projected_value.dtype
+        )
+        attended = torch.matmul(probabilities, projected_value)
+        attended = attended.transpose(1, 2).contiguous().view(
+            batch, tokens, self.dim
+        )
+        return self.to_out(attended)
 
 
 class MoEBlock(torch.nn.Module):
@@ -575,6 +615,9 @@ def method_payload(
         if request.method == "reformer"
         else None,
         "reformer_n_hashes": 4 if request.method == "reformer" else None,
+        "reformer_implementation": "strict_causal_fixed_hash_same_bucket_mask"
+        if request.method == "reformer"
+        else None,
         "keyformer_role": "shared_full_attention_moe_backbone"
         if request.method == "full_attention"
         else None,
@@ -642,6 +685,11 @@ def protocol_payload(
             "part_a_models": dense.PART_A_SOURCE_HASH,
             "reformer": sha256_file(reformer_path),
         },
+        "reformer_adapter_note": (
+            "The local runner uses a deterministic same-bucket causal mask. "
+            "The vendored sort-and-chunk causal path failed future-invariance "
+            "under future-token perturbation and is retained only as provenance."
+        ),
         "comparison_note": (
             "MoE is a new orthogonal factor. Results must be compared against "
             "the retained dense baselines, not merged into their statistics."
@@ -1085,3 +1133,978 @@ def run_training(
     if device.type == "cuda":
         torch.cuda.empty_cache()
     return summary
+
+
+def build_cache_policy(
+    name: str,
+    budget: int,
+    recent_window: int,
+    seed: int,
+) -> FullKVPolicy | KeyformerPolicy:
+    if name == "full_kv":
+        return FullKVPolicy()
+    if name == "keyformer":
+        return KeyformerPolicy(
+            budget=budget,
+            recent_window=recent_window,
+            tau_init=1.0,
+            tau_delta=0.01,
+            gumbel_noise=True,
+            seed=seed,
+        )
+    raise ValueError(name)
+
+
+class MoEKeyformerEngine:
+    """Incremental Full-Attention + MoE inference with physical KV pruning."""
+
+    def __init__(
+        self,
+        model: MoETinyLM,
+        policy_name: str,
+        total_context: int,
+        cache_ratio: float,
+        recent_ratio: float,
+        seed: int,
+    ):
+        if model.method != "full_attention":
+            raise ValueError("Keyformer requires a Full-Attention backbone")
+        if not 0.0 < cache_ratio <= 1.0:
+            raise ValueError("cache_ratio must be in (0, 1]")
+        self.model = model.eval()
+        self.policy_name = policy_name
+        self.total_context = total_context
+        self.cache_ratio = cache_ratio
+        self.recent_ratio = recent_ratio
+        self.seed = seed
+        self.budget = (
+            total_context
+            if policy_name == "full_kv"
+            else max(1, math.ceil(cache_ratio * total_context))
+        )
+        self.recent_window = min(
+            self.budget, math.floor(self.budget * recent_ratio)
+        )
+        self.reset()
+
+    def reset(self, seed_offset: int = 0) -> None:
+        self.policies = [
+            build_cache_policy(
+                self.policy_name,
+                self.budget,
+                self.recent_window,
+                self.seed + seed_offset * 997 + layer_index,
+            )
+            for layer_index in range(len(self.model.blocks))
+        ]
+        self.caches: list[KVCacheState | None] = [
+            None for _ in self.model.blocks
+        ]
+        self.seen_tokens = 0
+
+    def _split(self, value: torch.Tensor) -> torch.Tensor:
+        batch, tokens, _ = value.shape
+        heads = self.model.config.heads
+        head_dim = self.model.config.hidden_size // heads
+        return value.view(batch, tokens, heads, head_dim).transpose(1, 2)
+
+    def _merge(self, value: torch.Tensor) -> torch.Tensor:
+        batch, _, tokens, _ = value.shape
+        return value.transpose(1, 2).contiguous().view(
+            batch, tokens, self.model.config.hidden_size
+        )
+
+    def _attention(
+        self,
+        block: MoEBlock,
+        hidden: torch.Tensor,
+        layer_index: int,
+        position_ids: torch.Tensor,
+        prefill: bool,
+    ) -> torch.Tensor:
+        attention = block.attn
+        query = self._split(attention.to_q(hidden))
+        key = self._split(attention.to_k(hidden))
+        value = self._split(attention.to_v(hidden))
+        query, key = self.model.rope.apply_qk(
+            query, key, position_ids
+        )
+        scale = (self.model.config.hidden_size // self.model.config.heads) ** -0.5
+        policy = self.policies[layer_index]
+        state = self.caches[layer_index]
+
+        if prefill or state is None:
+            tokens = hidden.shape[1]
+            logits = torch.matmul(query, key.transpose(-1, -2)) * scale
+            causal = torch.ones(
+                tokens, tokens, dtype=torch.bool, device=hidden.device
+            ).tril()
+            masked = logits.masked_fill(
+                ~causal, torch.finfo(logits.dtype).min
+            )
+            probabilities = torch.softmax(masked.float(), dim=-1).to(value.dtype)
+            context = torch.matmul(probabilities, value)
+            score_probabilities = policy.score_probabilities(
+                masked.float(), decode_step=0
+            )
+            scores = score_probabilities.sum(dim=-2).float()
+            positions = position_ids.view(1, 1, tokens).expand(
+                hidden.shape[0], self.model.config.heads, tokens
+            )
+            state = KVCacheState(
+                keys=key,
+                values=value,
+                positions=positions,
+                scores=scores,
+                decode_step=0,
+                seen_tokens=tokens,
+            )
+            self.caches[layer_index] = policy.select(state)
+        else:
+            if hidden.shape[1] != 1:
+                raise ValueError("decode path accepts exactly one token")
+            keys = torch.cat((state.keys, key), dim=2)
+            values = torch.cat((state.values, value), dim=2)
+            next_position = position_ids.view(1, 1, 1).expand(
+                hidden.shape[0], self.model.config.heads, 1
+            )
+            positions = torch.cat((state.positions, next_position), dim=-1)
+            logits = torch.matmul(query, keys.transpose(-1, -2)) * scale
+            probabilities = torch.softmax(logits.float(), dim=-1).to(
+                values.dtype
+            )
+            context = torch.matmul(probabilities, values)
+            decode_step = state.decode_step + 1
+            score_row = policy.score_probabilities(
+                logits.float(), decode_step=decode_step
+            ).squeeze(-2)
+            scores = torch.cat(
+                (
+                    state.scores,
+                    torch.zeros_like(score_row[..., :1]),
+                ),
+                dim=-1,
+            )
+            scores = scores + score_row.to(scores.dtype)
+            updated = KVCacheState(
+                keys=keys,
+                values=values,
+                positions=positions,
+                scores=scores,
+                decode_step=decode_step,
+                seen_tokens=state.seen_tokens + 1,
+            )
+            self.caches[layer_index] = policy.select(updated)
+
+        return attention.to_out(self._merge(context))
+
+    def _block(
+        self,
+        block: MoEBlock,
+        hidden: torch.Tensor,
+        layer_index: int,
+        position_ids: torch.Tensor,
+        prefill: bool,
+    ) -> torch.Tensor:
+        attended = self._attention(
+            block,
+            block.ln1(hidden),
+            layer_index,
+            position_ids,
+            prefill,
+        )
+        hidden = hidden + block.dropout(attended)
+        hidden, _ = block.feed_forward(hidden, return_router=False)
+        return hidden
+
+    def prefill(
+        self,
+        token_ids: torch.Tensor,
+        seed_offset: int = 0,
+    ) -> torch.Tensor:
+        if token_ids.ndim != 2 or token_ids.shape[0] != 1:
+            raise ValueError("Keyformer engine currently requires batch size one")
+        self.reset(seed_offset=seed_offset)
+        positions = torch.arange(token_ids.shape[1], device=token_ids.device)
+        hidden = self.model.token_embedding(token_ids)
+        for layer_index, block in enumerate(self.model.blocks):
+            hidden = self._block(
+                block,
+                hidden,
+                layer_index,
+                positions,
+                prefill=True,
+            )
+        self.seen_tokens = token_ids.shape[1]
+        hidden = self.model.final_norm(hidden)
+        return F.linear(hidden, self.model.token_embedding.weight)
+
+    def decode_step(self, token_ids: torch.Tensor) -> torch.Tensor:
+        if token_ids.shape != (1, 1):
+            raise ValueError("decode_step requires token_ids shape [1, 1]")
+        if self.seen_tokens <= 0 or any(
+            state is None for state in self.caches
+        ):
+            raise RuntimeError("prefill must run before decode_step")
+        positions = torch.tensor(
+            [self.seen_tokens], device=token_ids.device, dtype=torch.long
+        )
+        hidden = self.model.token_embedding(token_ids)
+        for layer_index, block in enumerate(self.model.blocks):
+            hidden = self._block(
+                block,
+                hidden,
+                layer_index,
+                positions,
+                prefill=False,
+            )
+        self.seen_tokens += 1
+        hidden = self.model.final_norm(hidden)
+        return F.linear(hidden, self.model.token_embedding.weight)
+
+    def cache_summary(self) -> dict[str, Any]:
+        states = [state for state in self.caches if state is not None]
+        if len(states) != len(self.caches):
+            raise RuntimeError("cache is not initialized")
+        return {
+            "seen_tokens": self.seen_tokens,
+            "cached_tokens_max": max(state.num_tokens for state in states),
+            "kv_bytes_total": sum(state.storage_bytes for state in states),
+            "layers": len(states),
+            "budget": self.budget,
+            "recent_window": self.recent_window,
+        }
+
+
+def load_full_moe_checkpoint(
+    checkpoint_path: Path,
+    device: torch.device,
+) -> tuple[MoETinyLM, dict[str, Any]]:
+    payload = torch.load(
+        checkpoint_path, map_location="cpu", weights_only=False
+    )
+    model_config = dense.ModelConfig(**payload["model_config"])
+    moe_payload = dict(payload["moe_config"])
+    moe_payload["moe_layers"] = tuple(moe_payload["moe_layers"])
+    moe_config = MoEConfig(**moe_payload)
+    request = payload["request"]
+    if request["method"] != "full_attention":
+        raise ValueError("checkpoint is not a Full-Attention + MoE backbone")
+    model = MoETinyLM(
+        model_config,
+        "full_attention",
+        int(request["method_value"]),
+        int(request["seed"]),
+        moe_config,
+    )
+    model.load_state_dict(payload["model"], strict=True)
+    model.to(device).eval()
+    return model, payload
+
+
+@torch.no_grad()
+def evaluate_keyformer_policy(
+    model: MoETinyLM,
+    policy_name: str,
+    validation_stream: dense.b.PackedTokenStream,
+    prediction_limit: int,
+    context: int,
+    prefill_tokens: int,
+    cache_ratio: float,
+    recent_ratio: float,
+    seed: int,
+    device: torch.device,
+) -> dict[str, Any]:
+    model.eval()
+    prediction_limit = min(prediction_limit, validation_stream.prediction_count)
+    consumed = 0
+    block_index = 0
+    loss_sum = 0.0
+    top1_correct = 0
+    peak_cache_bytes = 0
+    peak_cached_tokens = 0
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats(device)
+    started = time.perf_counter()
+
+    while consumed < prediction_limit:
+        valid_predictions = min(context, prediction_limit - consumed)
+        inputs, targets, _ = validation_stream.batch(
+            block_index,
+            1,
+            valid_predictions,
+            device,
+        )
+        prompt = min(prefill_tokens, valid_predictions)
+        engine = MoEKeyformerEngine(
+            model,
+            policy_name,
+            total_context=context,
+            cache_ratio=cache_ratio,
+            recent_ratio=recent_ratio,
+            seed=seed,
+        )
+        with dense.autocast_context(device):
+            logits = engine.prefill(
+                inputs[:, :prompt], seed_offset=block_index
+            )
+        prompt_logits = logits[:, :prompt].float()
+        prompt_targets = targets[:, :prompt]
+        loss_sum += float(
+            F.cross_entropy(
+                prompt_logits.reshape(-1, prompt_logits.shape[-1]),
+                prompt_targets.reshape(-1),
+                reduction="sum",
+            ).cpu()
+        )
+        top1_correct += int(
+            (prompt_logits.argmax(dim=-1) == prompt_targets).sum().cpu()
+        )
+
+        for token_index in range(prompt, valid_predictions):
+            with dense.autocast_context(device):
+                logits = engine.decode_step(
+                    inputs[:, token_index : token_index + 1]
+                )
+            target = targets[:, token_index]
+            row = logits[:, -1].float()
+            loss_sum += float(F.cross_entropy(row, target, reduction="sum").cpu())
+            top1_correct += int((row.argmax(dim=-1) == target).sum().cpu())
+
+        cache = engine.cache_summary()
+        peak_cache_bytes = max(peak_cache_bytes, int(cache["kv_bytes_total"]))
+        peak_cached_tokens = max(
+            peak_cached_tokens, int(cache["cached_tokens_max"])
+        )
+        consumed += valid_predictions
+        block_index += 1
+        if block_index == 1 or consumed == prediction_limit or block_index % 16 == 0:
+            print(
+                f"[keyformer:{policy_name}] tokens={consumed}/{prediction_limit} "
+                f"cached={cache['cached_tokens_max']}",
+                flush=True,
+            )
+
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    elapsed = time.perf_counter() - started
+    nll = loss_sum / max(consumed, 1)
+    peak_allocated = (
+        torch.cuda.max_memory_allocated(device)
+        if device.type == "cuda"
+        else None
+    )
+    return {
+        "status": "ok",
+        "policy": policy_name,
+        "seed": seed,
+        "context": context,
+        "prefill_tokens": prefill_tokens,
+        "cache_ratio": 1.0 if policy_name == "full_kv" else cache_ratio,
+        "recent_ratio": recent_ratio,
+        "tokens_evaluated": consumed,
+        "token_weighted_nll": nll,
+        "perplexity": math.exp(min(nll, 20.0)),
+        "top1_accuracy": top1_correct / max(consumed, 1),
+        "elapsed_seconds": elapsed,
+        "tokens_per_second": consumed / max(elapsed, 1e-9),
+        "peak_cached_tokens": peak_cached_tokens,
+        "peak_kv_bytes": peak_cache_bytes,
+        "peak_allocated_bytes": peak_allocated,
+    }
+
+
+def run_keyformer_suite(
+    device: torch.device,
+    seed: int,
+    train_tokens: int,
+    prediction_limit: int,
+    context: int = 512,
+    prefill_tokens: int = 128,
+) -> dict[str, Any]:
+    base_run_id = run_id_for("full_attention", seed, train_tokens)
+    checkpoint_path = RUNS_DIR / base_run_id / "final.pt"
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(
+            f"train the Full-Attention + MoE base first: {checkpoint_path}"
+        )
+    output_path = AGGREGATE_DIR / "keyformer_evaluation.json"
+    if output_path.exists():
+        existing = json.loads(output_path.read_text(encoding="utf-8"))
+        if (
+            existing.get("status") == "ok"
+            and existing.get("seed") == seed
+            and existing.get("prediction_limit") == prediction_limit
+            and existing.get("base_checkpoint") == str(checkpoint_path)
+        ):
+            print("[skip complete] Keyformer evaluation", flush=True)
+            return existing
+
+    model, checkpoint = load_full_moe_checkpoint(checkpoint_path, device)
+    validation_path, validation_meta = dense.b.build_token_cache(
+        "validation", None
+    )
+    validation_stream = dense.b.PackedTokenStream(
+        validation_path,
+        int(validation_meta["token_count"]),
+        context,
+    )
+    rows = []
+    for policy_name, ratio in (("full_kv", 1.0), ("keyformer", 0.5)):
+        row = evaluate_keyformer_policy(
+            model,
+            policy_name,
+            validation_stream,
+            prediction_limit,
+            context,
+            prefill_tokens,
+            ratio,
+            0.5,
+            seed,
+            device,
+        )
+        rows.append(row)
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+    full_row = next(row for row in rows if row["policy"] == "full_kv")
+    keyformer_row = next(row for row in rows if row["policy"] == "keyformer")
+    payload = {
+        "protocol_version": "tinystories_tinylm_moe_v1",
+        "status": "ok",
+        "seed": seed,
+        "prediction_limit": prediction_limit,
+        "base_checkpoint": str(checkpoint_path),
+        "base_config_hash": checkpoint["config_hash"],
+        "base_runner_sha256": checkpoint.get("runner_sha256"),
+        "evaluation_runner_sha256": sha256_file(Path(__file__).resolve()),
+        "validation_cache": validation_meta,
+        "rows": rows,
+        "keyformer_minus_full": {
+            "nll": keyformer_row["token_weighted_nll"]
+            - full_row["token_weighted_nll"],
+            "ppl": keyformer_row["perplexity"] - full_row["perplexity"],
+            "kv_bytes_saved_fraction": 1.0
+            - keyformer_row["peak_kv_bytes"] / full_row["peak_kv_bytes"],
+            "throughput_ratio": keyformer_row["tokens_per_second"]
+            / full_row["tokens_per_second"],
+        },
+        "completed_at_utc": now_utc(),
+    }
+    atomic_json(output_path, payload)
+    print(
+        f"[done] keyformer nll={keyformer_row['token_weighted_nll']:.6f} "
+        f"full_nll={full_row['token_weighted_nll']:.6f} "
+        f"kv_saved={payload['keyformer_minus_full']['kv_bytes_saved_fraction']:.2%}",
+        flush=True,
+    )
+    del model
+    gc.collect()
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    return payload
+
+
+def small_model_config() -> dense.ModelConfig:
+    return dense.ModelConfig(
+        vocab_size=128,
+        layers=6,
+        hidden_size=64,
+        heads=4,
+        ffn_size=128,
+        context=32,
+        rope_max_position=256,
+        dropout=0.0,
+        longformer_query_chunk=8,
+        memformer_segment_length=8,
+        lin_chunk=8,
+        lin_pool=16,
+        performer_features=32,
+        performer_redraw_interval=0,
+    )
+
+
+@torch.no_grad()
+def future_invariance_delta(
+    model: MoETinyLM,
+    sample: torch.Tensor,
+    split: int,
+) -> float:
+    model.eval()
+    changed = sample.clone()
+    changed[:, split:] = (changed[:, split:] + 19) % model.config.vocab_size
+    left = model(sample)[:, :split].float()
+    right = model(changed)[:, :split].float()
+    return float((left - right).abs().max().cpu())
+
+
+def correctness(device: torch.device) -> dict[str, Any]:
+    dense.configure_cuda()
+    device = torch.device(device)
+    config = small_model_config()
+    moe_config = MoEConfig(moe_layers=tuple(range(config.layers)))
+    seed_all(17)
+    sample = torch.randint(
+        0, config.vocab_size, (2, config.context), device=device
+    )
+    values = {
+        "memformer": 8,
+        "linformer": 16,
+        "performer": 32,
+        "longformer": 8,
+        "reformer": 8,
+        "full_attention": 0,
+    }
+    rows: dict[str, Any] = {}
+    for method in ALL_TRAINING_METHODS:
+        seed_all(17)
+        model = MoETinyLM(
+            config, method, values[method], 17, moe_config
+        ).to(device)
+        model.train()
+        model.zero_grad(set_to_none=True)
+        with dense.autocast_context(device):
+            logits, router = model(sample, return_router=True)
+        objective = F.cross_entropy(
+            logits.float().reshape(-1, config.vocab_size),
+            sample.reshape(-1),
+        )
+        objective = (
+            objective
+            + moe_config.load_balance_coefficient
+            * router["load_balance_loss"]
+            + moe_config.router_z_loss_coefficient
+            * router["router_z_loss"]
+        )
+        objective.backward()
+        gradients = [
+            parameter.grad
+            for parameter in model.parameters()
+            if parameter.grad is not None
+        ]
+        grad_finite = bool(gradients) and all(
+            bool(torch.isfinite(gradient).all()) for gradient in gradients
+        )
+        unrouted = [
+            name
+            for name, parameter in model.named_parameters()
+            if ".ffn.experts." in name and parameter.grad is None
+        ]
+        future_delta = future_invariance_delta(model, sample, 16)
+        rows[method] = {
+            "shape": list(logits.shape),
+            "logits_finite": bool(torch.isfinite(logits).all()),
+            "loss_finite": bool(torch.isfinite(objective)),
+            "gradients_finite": grad_finite,
+            "unrouted_expert_parameters": unrouted,
+            "future_invariance_max_abs": future_delta,
+            "router_counts": router["counts"].detach().cpu().tolist(),
+            "router_probability_mass": router[
+                "probability_mass"
+            ].detach().cpu().tolist(),
+            "parameters": moe_parameter_record(model),
+        }
+        del model
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+
+    seed_all(17)
+    full_model = MoETinyLM(
+        config, "full_attention", 0, 17, moe_config
+    ).to(device).eval()
+    prefix = sample[:1, :16]
+    next_token = sample[:1, 16:17]
+    with torch.no_grad(), dense.autocast_context(device):
+        direct_prefill = full_model(prefix)
+        direct_decode = full_model(sample[:1, :17])[:, -1:]
+        full_engine = MoEKeyformerEngine(
+            full_model,
+            "full_kv",
+            total_context=32,
+            cache_ratio=1.0,
+            recent_ratio=0.5,
+            seed=17,
+        )
+        engine_prefill = full_engine.prefill(prefix)
+        engine_decode = full_engine.decode_step(next_token)
+        keyformer_ratio_one = MoEKeyformerEngine(
+            full_model,
+            "keyformer",
+            total_context=32,
+            cache_ratio=1.0,
+            recent_ratio=0.5,
+            seed=17,
+        )
+        key_prefill = keyformer_ratio_one.prefill(prefix)
+        key_decode = keyformer_ratio_one.decode_step(next_token)
+    keyformer_checks = {
+        "fullkv_prefill_max_abs": float(
+            (direct_prefill.float() - engine_prefill.float()).abs().max().cpu()
+        ),
+        "fullkv_decode_max_abs": float(
+            (direct_decode.float() - engine_decode.float()).abs().max().cpu()
+        ),
+        "ratio_one_prefill_max_abs": float(
+            (engine_prefill.float() - key_prefill.float()).abs().max().cpu()
+        ),
+        "ratio_one_decode_max_abs": float(
+            (engine_decode.float() - key_decode.float()).abs().max().cpu()
+        ),
+        "ratio_one_cached_tokens": keyformer_ratio_one.cache_summary()[
+            "cached_tokens_max"
+        ],
+    }
+    tolerance = 0.02 if device.type == "cuda" else 1e-5
+    method_ok = all(
+        row["logits_finite"]
+        and row["loss_finite"]
+        and row["gradients_finite"]
+        and row["future_invariance_max_abs"] < tolerance
+        for row in rows.values()
+    )
+    keyformer_ok = (
+        keyformer_checks["fullkv_prefill_max_abs"] < tolerance
+        and keyformer_checks["fullkv_decode_max_abs"] < tolerance
+        and keyformer_checks["ratio_one_prefill_max_abs"] == 0.0
+        and keyformer_checks["ratio_one_decode_max_abs"] == 0.0
+    )
+    payload = {
+        "protocol_version": "tinystories_tinylm_moe_v1",
+        "status": "passed" if method_ok and keyformer_ok else "failed",
+        "seed": 17,
+        "moe_config": asdict(moe_config),
+        "methods": rows,
+        "keyformer": keyformer_checks,
+        "tolerance": tolerance,
+        "runner_sha256": sha256_file(Path(__file__).resolve()),
+        "completed_at_utc": now_utc(),
+    }
+    atomic_json(AGGREGATE_DIR / "correctness.json", payload)
+    print(json.dumps(payload, indent=2, ensure_ascii=False), flush=True)
+    del full_model
+    gc.collect()
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    return payload
+
+
+def aggregate(seed: int, train_tokens: int) -> dict[str, Any]:
+    training_rows = []
+    for method in ALL_TRAINING_METHODS:
+        run_id = run_id_for(method, seed, train_tokens)
+        path = RUNS_DIR / run_id / "summary.json"
+        if not path.exists():
+            continue
+        row = json.loads(path.read_text(encoding="utf-8"))
+        validation = row.get("full_validation") or {}
+        training_rows.append(
+            {
+                "method": method,
+                "role": "keyformer_shared_backbone"
+                if method == "full_attention"
+                else "trainable_backbone",
+                "run_id": run_id,
+                "status": row.get("status"),
+                "seed": row.get("seed"),
+                "train_tokens": row.get("train_tokens_completed"),
+                "validation_tokens": validation.get("tokens"),
+                "validation_nll": validation.get("token_weighted_nll"),
+                "validation_ppl": validation.get("perplexity"),
+                "training_tokens_per_second": row.get(
+                    "mean_training_tokens_per_second"
+                ),
+                "peak_allocated_gib": (
+                    (row.get("peak_allocated_bytes") or 0) / 2**30
+                ),
+                "parameters": (row.get("parameters") or {}).get(
+                    "total_parameters"
+                ),
+                "active_parameters_per_token": (
+                    row.get("parameters") or {}
+                ).get("active_parameters_per_token_top1"),
+                "route_fractions": (row.get("router_training") or {}).get(
+                    "route_fractions"
+                ),
+            }
+        )
+    keyformer_path = AGGREGATE_DIR / "keyformer_evaluation.json"
+    keyformer = (
+        json.loads(keyformer_path.read_text(encoding="utf-8"))
+        if keyformer_path.exists()
+        else None
+    )
+    correctness_path = AGGREGATE_DIR / "correctness.json"
+    correctness_result = (
+        json.loads(correctness_path.read_text(encoding="utf-8"))
+        if correctness_path.exists()
+        else None
+    )
+    expected = set(ALL_TRAINING_METHODS)
+    completed = {
+        row["method"]
+        for row in training_rows
+        if row["status"] == "ok" and row["train_tokens"] == train_tokens
+    }
+    status = (
+        "complete"
+        if completed == expected
+        and keyformer is not None
+        and keyformer.get("status") == "ok"
+        and correctness_result is not None
+        and correctness_result.get("status") == "passed"
+        else "partial"
+    )
+    payload = {
+        "protocol_version": "tinystories_tinylm_moe_v1",
+        "status": status,
+        "seed": seed,
+        "train_tokens_per_backbone": train_tokens,
+        "moe_config": asdict(MoEConfig()),
+        "training_rows": training_rows,
+        "keyformer_evaluation": keyformer,
+        "correctness": correctness_result,
+        "runner_sha256": sha256_file(Path(__file__).resolve()),
+        "generated_at_utc": now_utc(),
+    }
+    AGGREGATE_DIR.mkdir(parents=True, exist_ok=True)
+    atomic_json(AGGREGATE_DIR / "summary.json", payload)
+
+    lines = [
+        "# TinyLM MoE seed-17 results",
+        "",
+        "All six Transformer layers use four experts, top-1 routing, and dropless dispatch.",
+        "",
+        "## Trainable backbones and the shared Keyformer base",
+        "",
+        "| method | role | status | val NLL | val PPL | train tok/s | peak GiB | params | active params/token |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in training_rows:
+        def show(value: Any, digits: int = 4) -> str:
+            if value is None:
+                return "N/A"
+            if isinstance(value, float):
+                return f"{value:.{digits}f}"
+            return str(value)
+
+        lines.append(
+            f"| {row['method']} | {row['role']} | {row['status']} | "
+            f"{show(row['validation_nll'], 6)} | {show(row['validation_ppl'], 4)} | "
+            f"{show(row['training_tokens_per_second'], 1)} | "
+            f"{show(row['peak_allocated_gib'], 3)} | {show(row['parameters'])} | "
+            f"{show(row['active_parameters_per_token'])} |"
+        )
+    lines.extend(["", "## Keyformer KV-cache evaluation", ""])
+    if keyformer is None:
+        lines.append("Keyformer evaluation has not completed.")
+    else:
+        lines.extend(
+            [
+                "| policy | tokens | NLL | PPL | tok/s | peak KV bytes |",
+                "|---|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for row in keyformer.get("rows", []):
+            lines.append(
+                f"| {row['policy']} | {row['tokens_evaluated']} | "
+                f"{row['token_weighted_nll']:.6f} | {row['perplexity']:.4f} | "
+                f"{row['tokens_per_second']:.1f} | {row['peak_kv_bytes']} |"
+            )
+    (AGGREGATE_DIR / "SUMMARY.md").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8"
+    )
+    print(json.dumps(payload, indent=2, ensure_ascii=False), flush=True)
+    return payload
+
+
+def make_request(
+    method: str,
+    seed: int,
+    train_tokens: int,
+    validation_probe_tokens: int,
+    full_validation: bool,
+    save_checkpoint_flag: bool,
+) -> TrainRequest:
+    return TrainRequest(
+        method=method,
+        method_value=DEFAULT_VALUES[method],
+        run_id=run_id_for(method, seed, train_tokens),
+        seed=seed,
+        train_tokens=train_tokens,
+        validation_probe_tokens=validation_probe_tokens,
+        full_validation=full_validation,
+        save_checkpoint=save_checkpoint_flag,
+    )
+
+
+def run_priority(
+    device: torch.device,
+    seed: int,
+    train_tokens: int,
+    validation_probe_tokens: int,
+    full_validation: bool,
+    save_checkpoint_flag: bool,
+    keyformer_predictions: int,
+) -> None:
+    moe_config = MoEConfig()
+    for method in ("memformer", "full_attention"):
+        request = make_request(
+            method,
+            seed,
+            train_tokens,
+            validation_probe_tokens,
+            full_validation,
+            save_checkpoint_flag,
+        )
+        result = run_training(request, device, moe_config)
+        if result.get("status") != "ok":
+            raise RuntimeError(f"{method} training failed: {result.get('failure')}")
+    if not save_checkpoint_flag:
+        print(
+            "[skip] Keyformer evaluation requires a saved Full-Attention checkpoint",
+            flush=True,
+        )
+        return
+    run_keyformer_suite(
+        device,
+        seed,
+        train_tokens,
+        keyformer_predictions,
+    )
+
+
+def run_remaining(
+    device: torch.device,
+    seed: int,
+    train_tokens: int,
+    validation_probe_tokens: int,
+    full_validation: bool,
+    save_checkpoint_flag: bool,
+) -> None:
+    moe_config = MoEConfig()
+    for method in ("linformer", "performer", "longformer", "reformer"):
+        request = make_request(
+            method,
+            seed,
+            train_tokens,
+            validation_probe_tokens,
+            full_validation,
+            save_checkpoint_flag,
+        )
+        result = run_training(request, device, moe_config)
+        if result.get("status") != "ok":
+            raise RuntimeError(f"{method} training failed: {result.get('failure')}")
+
+
+def add_run_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--seed", type=int, default=17)
+    parser.add_argument("--train-tokens", type=int, default=10_000_000)
+    parser.add_argument(
+        "--validation-probe-tokens", type=int, default=262_144
+    )
+    parser.add_argument(
+        "--full-validation",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    parser.add_argument(
+        "--save-checkpoint",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    parser.add_argument(
+        "--keyformer-predictions", type=int, default=32_768
+    )
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    check = subparsers.add_parser("correctness")
+    check.add_argument("--device", default="cuda:0")
+
+    train = subparsers.add_parser("train")
+    add_run_arguments(train)
+    train.add_argument("--method", choices=ALL_TRAINING_METHODS, required=True)
+
+    priority = subparsers.add_parser("priority")
+    add_run_arguments(priority)
+
+    remaining = subparsers.add_parser("remaining")
+    add_run_arguments(remaining)
+
+    all_runs = subparsers.add_parser("all")
+    add_run_arguments(all_runs)
+
+    keyformer = subparsers.add_parser("keyformer")
+    keyformer.add_argument("--device", default="cuda:0")
+    keyformer.add_argument("--seed", type=int, default=17)
+    keyformer.add_argument("--train-tokens", type=int, default=10_000_000)
+    keyformer.add_argument("--predictions", type=int, default=32_768)
+
+    aggregation = subparsers.add_parser("aggregate")
+    aggregation.add_argument("--seed", type=int, default=17)
+    aggregation.add_argument("--train-tokens", type=int, default=10_000_000)
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    if args.command == "aggregate":
+        aggregate(args.seed, args.train_tokens)
+        return
+    device = torch.device(args.device)
+    if device.type == "cuda":
+        torch.cuda.set_device(device)
+    if args.command == "correctness":
+        result = correctness(device)
+        if result["status"] != "passed":
+            raise SystemExit("correctness checks failed")
+        return
+    if args.command == "keyformer":
+        run_keyformer_suite(
+            device,
+            args.seed,
+            args.train_tokens,
+            args.predictions,
+        )
+        return
+    if args.command == "train":
+        request = make_request(
+            args.method,
+            args.seed,
+            args.train_tokens,
+            args.validation_probe_tokens,
+            args.full_validation,
+            args.save_checkpoint,
+        )
+        result = run_training(request, device, MoEConfig())
+        if result.get("status") != "ok":
+            raise SystemExit(result.get("failure") or "training failed")
+        return
+    if args.command in ("priority", "all"):
+        run_priority(
+            device,
+            args.seed,
+            args.train_tokens,
+            args.validation_probe_tokens,
+            args.full_validation,
+            args.save_checkpoint,
+            args.keyformer_predictions,
+        )
+    if args.command in ("remaining", "all"):
+        run_remaining(
+            device,
+            args.seed,
+            args.train_tokens,
+            args.validation_probe_tokens,
+            args.full_validation,
+            args.save_checkpoint,
+        )
+    aggregate(args.seed, args.train_tokens)
+
+
+if __name__ == "__main__":
+    main()

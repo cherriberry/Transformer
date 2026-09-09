@@ -380,7 +380,7 @@ slots=64 相对 slots=32：
 | 9,437,184 | 2.923222 / 18.60 | **2.883650 / 17.88** |
 | 10,000,000 | 2.909679 / 18.35 | **2.872239 / 17.68** |
 
-![训练与 validation probe 曲线](experiments/tinystories_tinylm_v1/aggregate/person_b_training_validation_curves.png)
+![训练与 validation probe 曲线](../experiments/tinystories_tinylm_v1/aggregate/person_b_training_validation_curves.png)
 
 两个方法的 probe NLL 都持续下降，最终 probe 同时也是最佳 probe checkpoint，没有观察到 validation 反弹。曲线在 10M tokens 时仍在缓慢下降，因此更准确的结论是“训练稳定且达到可比较 validation”，而不是“已经充分收敛”。
 
@@ -495,7 +495,7 @@ Full-Attention 参考把 Longformer checkpoint 中对应 Q/K/V/output 和公共�
 | 16,384 | **23.523 / 696,514** | 280.707 / 58,367 | 783.836 / 20,902 |
 | 32,768 | **67.832 / 483,077** | 557.841 / 58,741 | 1,509.627 / 21,706 |
 
-![完整 TinyLM 前向效率曲线](experiments/tinystories_tinylm_v1/aggregate/person_b_end_to_end_efficiency_curves.png)
+![完整 TinyLM 前向效率曲线](../experiments/tinystories_tinylm_v1/aggregate/person_b_end_to_end_efficiency_curves.png)
 
 实测解释：
 
@@ -538,7 +538,7 @@ Full-Attention 参考把 Longformer checkpoint 中对应 Q/K/V/output 和公共�
 | 16,384 | **2.547 / 102.1** | 44.237 / 120.5 | 121.048 / 36.2 |
 | 32,768 | **8.174 / 204.2** | 88.378 / 233.3 | 242.225 / **72.3** |
 
-![单层 attention-only 效率曲线](experiments/tinystories_tinylm_v1/aggregate/person_b_attention_only_efficiency_curves.png)
+![单层 attention-only 效率曲线](../experiments/tinystories_tinylm_v1/aggregate/person_b_attention_only_efficiency_curves.png)
 
 在 32,768 token：
 

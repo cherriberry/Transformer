@@ -1,0 +1,34 @@
+protocol_version: tinystories_tinylm_moe_v1
+seed: 17
+device: cuda:0
+model:
+  layers: 6
+  hidden_size: 384
+  heads: 8
+  ffn_size_per_expert: 1536
+  context: 512
+moe:
+  replace_layers: [1, 2, 3, 4, 5, 6]
+  num_experts: 4
+  top_k: 1
+  dropless: true
+  load_balance_coefficient: 0.01
+  router_z_loss_coefficient: 0.001
+training:
+  predictions_per_backbone: 10000000
+  effective_batch_tokens: 8192
+  validation_probe_predictions: 262144
+  full_validation: true
+priority_order:
+  - memformer_moe
+  - full_attention_moe_keyformer_backbone
+  - keyformer_cache_evaluation
+  - linformer_moe
+  - performer_moe
+  - longformer_moe
+  - reformer_moe
+keyformer:
+  cache_ratio: 0.5
+  recent_ratio: 0.5
+  evaluation_predictions: 32768
+  note: Keyformer is an inference-time policy on the shared Full-Attention MoE backbone.

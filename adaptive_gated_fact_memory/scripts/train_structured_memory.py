@@ -218,7 +218,7 @@ def configure_memory_policy(
                 parameter.requires_grad_(False)
         return
 
-    if memory_policy == "fixed":
+    if memory_policy in {"fixed", "fixed_lru"}:
         # Fixed memory uses the same candidate/key/value and fusion projections
         # as the proposed model, but these gate heads are ignored by the
         # controller/fusion implementation and must not receive optimizer
@@ -585,7 +585,7 @@ def training_batch_loss(
     losses["retention"] = retention_loss
     losses["budget"] = budget_loss
 
-    if memory_policy == "fixed":
+    if memory_policy in {"fixed", "fixed_lru"}:
         # Keep span extraction and semantic addressing trainable, but remove
         # losses for gate heads whose decisions are intentionally fixed.
         total = (
@@ -1024,7 +1024,7 @@ def parse_args() -> argparse.Namespace:
         "--memory-policy",
         choices=AdaptiveFactMemoryLM.VALID_MEMORY_POLICIES,
         default="gated",
-        help="gated proposal, fixed always-on memory, or SWA-only (none)",
+        help="gated proposal, fixed always-on memory, fixed-LRU, or SWA-only (none)",
     )
     parser.add_argument("--steps", type=int, default=2_000)
     parser.add_argument("--batch-size", type=int, default=2)

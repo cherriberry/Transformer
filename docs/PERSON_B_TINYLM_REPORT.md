@@ -31,7 +31,7 @@
 | Memformer slots=32 | 4.5803 | 97.55 | 15,508 | 2.64 GiB | 不冻结 |
 | Memformer slots=64 | 4.5322 | 92.96 | 16,093 | 2.63 GiB | **冻结** |
 
-Longformer 的 256-window PPL 低 3.94%，但仍在预定 5% 质量带内；window=128 吞吐约高 76.7%、峰值 allocated 低约 44.1%，故冻结 128。Memformer 的 64 slots 同时改善 probe NLL/PPL 和吞吐，显存基本不变，故冻结 64。完整选择依据见 [person_b_pilot_selection.json](experiments/tinystories_tinylm_v1/aggregate/person_b_pilot_selection.json)。
+Longformer 的 256-window PPL 低 3.94%，但仍在预定 5% 质量带内；window=128 吞吐约高 76.7%、峰值 allocated 低约 44.1%，故冻结 128。Memformer 的 64 slots 同时改善 probe NLL/PPL 和吞吐，显存基本不变，故冻结 64。完整选择依据见 [person_b_pilot_selection.json](../experiments/tinystories_tinylm_v1/aggregate/person_b_pilot_selection.json)。
 
 ## 3. 主实验质量结果
 
@@ -53,17 +53,17 @@ Longformer 的 256-window PPL 低 3.94%，但仍在预定 5% 质量带内；wind
 
 扩展原始摘要：
 
-- [Longformer 100M summary](../../autodl-tmp/26summerBDMI_transformer/runs/person_b_extended/extended100m_longformer_w128_s17/summary.json)
-- [Memformer 100M summary](../../autodl-tmp/26summerBDMI_transformer/runs/person_b_extended/extended100m_memformer_s128_m64_s17/summary.json)
+- [Longformer 100M summary](../../../autodl-tmp/26summerBDMI_transformer/runs/person_b_extended/extended100m_longformer_w128_s17/summary.json)
+- [Memformer 100M summary](../../../autodl-tmp/26summerBDMI_transformer/runs/person_b_extended/extended100m_memformer_s128_m64_s17/summary.json)
 
 每个训练步和 validation probe 的原始曲线保存在：
 
-- [Longformer metrics.jsonl](experiments/tinystories_tinylm_v1/runs/person_b/main_b_longformer_w128_s17/metrics.jsonl)
-- [Memformer metrics.jsonl](experiments/tinystories_tinylm_v1/runs/person_b/main_b_memformer_s128_m64_s17/metrics.jsonl)
+- [Longformer metrics.jsonl](../experiments/tinystories_tinylm_v1/runs/person_b/main_b_longformer_w128_s17/metrics.jsonl)
+- [Memformer metrics.jsonl](../experiments/tinystories_tinylm_v1/runs/person_b/main_b_memformer_s128_m64_s17/metrics.jsonl)
 
 ## 4. 长度效率矩阵
 
-这是完整 TinyLM 前向（包含 tied vocabulary projection）的 batch=1、BF16、warmup=10、timed=30 测量；Full-Attention 参考使用 Longformer checkpoint 的公共 Q/K/V/output 权重，仅作效率参照，不代表独立 Full-Attention 质量训练。完整原始记录见 [person_b_efficiency.json](experiments/tinystories_tinylm_v1/aggregate/person_b_efficiency.json)。
+这是完整 TinyLM 前向（包含 tied vocabulary projection）的 batch=1、BF16、warmup=10、timed=30 测量；Full-Attention 参考使用 Longformer checkpoint 的公共 Q/K/V/output 权重，仅作效率参照，不代表独立 Full-Attention 质量训练。完整原始记录见 [person_b_efficiency.json](../experiments/tinystories_tinylm_v1/aggregate/person_b_efficiency.json)。
 
 | 长度 | Full ref ms | Longformer ms | Memformer ms | Longformer tok/s | Memformer tok/s |
 |---:|---:|---:|---:|---:|---:|
@@ -77,17 +77,17 @@ Longformer 的 256-window PPL 低 3.94%，但仍在预定 5% 质量带内；wind
 
 端到端 benchmark 已按协议使用 BF16 autocast。在本实现中，Full SDPA 参考在所有测量长度都更快；32,768 时 Longformer 约为 Full 的 8.22×，Memformer 约为 Full 的 22.26×、约为 Longformer 的 2.71×。这不是对 Longformer/Memformer 理论复杂度的否定，而是说明 Python/chunk 调度、recurrent segment 更新和统一词表 logits 投影会显著影响实际端到端速度。旧版表格曾将未启用 autocast 的结果标成 BF16，已重测并以当前 `person_b_efficiency.json` 为准。
 
-为隔离 attention 路径，另有 [person_b_attention_efficiency.json](experiments/tinystories_tinylm_v1/aggregate/person_b_attention_efficiency.json)：单层 attention-only 在 32,768 时 Longformer 88.38ms、Memformer 242.23ms、Full 8.17ms；attention-only 峰值增量约为 233.3、72.3、204.2 MiB。Memformer 的固定 state 路径确实节省状态规模，但当前实现仍有额外 segment fusion 开销。
+为隔离 attention 路径，另有 [person_b_attention_efficiency.json](../experiments/tinystories_tinylm_v1/aggregate/person_b_attention_efficiency.json)：单层 attention-only 在 32,768 时 Longformer 88.38ms、Memformer 242.23ms、Full 8.17ms；attention-only 峰值增量约为 233.3、72.3、204.2 MiB。Memformer 的固定 state 路径确实节省状态规模，但当前实现仍有额外 segment fusion 开销。
 
-对应图表：[训练/validation 曲线](experiments/tinystories_tinylm_v1/aggregate/person_b_training_validation_curves.png)、[端到端效率曲线](experiments/tinystories_tinylm_v1/aggregate/person_b_end_to_end_efficiency_curves.png)、[attention-only 效率曲线](experiments/tinystories_tinylm_v1/aggregate/person_b_attention_only_efficiency_curves.png)。
+对应图表：[训练/validation 曲线](../experiments/tinystories_tinylm_v1/aggregate/person_b_training_validation_curves.png)、[端到端效率曲线](../experiments/tinystories_tinylm_v1/aggregate/person_b_end_to_end_efficiency_curves.png)、[attention-only 效率曲线](../experiments/tinystories_tinylm_v1/aggregate/person_b_attention_only_efficiency_curves.png)。
 
-32768 是 RoPE 配置的最大位置；长度 32769 的三种方法均明确失败并返回 `ValueError: position exceeds configured RoPE maximum`，不是 OOM。边界记录见 [person_b_length_boundary.json](experiments/tinystories_tinylm_v1/aggregate/person_b_length_boundary.json)。
+32768 是 RoPE 配置的最大位置；长度 32769 的三种方法均明确失败并返回 `ValueError: position exceeds configured RoPE maximum`，不是 OOM。边界记录见 [person_b_length_boundary.json](../experiments/tinystories_tinylm_v1/aggregate/person_b_length_boundary.json)。
 
 ## 5. 跨 segment 影响机制诊断
 
 为直接检验“局部传播”与“跨 segment state”而不引入额外训练任务，在相同 validation 前缀上替换最早 128 个 token，比较末端 logits 的变化。Longformer 6 层、left window=128 的单 token 传播上限约为 `6×128=768` 个位置；由于这里替换的是一个 128-token 前缀，长度 768/896 仍可观测到末端影响，而长度 1,024 及以上的末端影响降为 0。Memformer 在 512、768、896、1,024、2,048、4,096 上均保留非零末端影响（分别约 `0.2656、0.1250、0.0625、0.0625、0.0625、0.03125` 的最大 logit 绝对差），但影响随 recurrent 压缩和 segment 数增加而衰减。该结果支持两种信息通路的机制差异：Longformer 的远距可达性受层数×窗口限制，Memformer 可以跨任意已处理 segment 传递压缩影响；它不是事实检索准确率，也不证明无损记忆。
 
-原始记录：[person_b_cross_segment_influence.json](experiments/tinystories_tinylm_v1/aggregate/person_b_cross_segment_influence.json)。
+原始记录：[person_b_cross_segment_influence.json](../experiments/tinystories_tinylm_v1/aggregate/person_b_cross_segment_influence.json)。
 
 ## 6. 正确性与可复现性
 
@@ -96,7 +96,7 @@ Longformer 的 256-window PPL 低 3.94%，但仍在预定 5% 质量带内；wind
 - Longformer causal future-invariance：0；full-window RoPE 等价误差 `2.38e-7`；
 - Memformer causal future-invariance：0；跨段 history effect `0.0351`；reset 与 batch reorder 误差均为 0；
 - 两模型反向传播梯度有限；公共非 attention 参数初始化最大差异为 0；
-- 结果文件：[person_b_correctness.json](experiments/tinystories_tinylm_v1/aggregate/person_b_correctness.json)。
+- 结果文件：[person_b_correctness.json](../experiments/tinystories_tinylm_v1/aggregate/person_b_correctness.json)。
 
 训练前发现并修复了一个流程问题：`evaluate()` 会切换 `eval()`，而原 runner 未在验证后恢复 `train()`，会错误关闭 dropout。修复后的主实验在初始 validation、每次 probe 和最终 validation 后都显式恢复 `model.train()`。修复前的 `pilot_seq_longformer_w128_s17` 不纳入结果。
 
@@ -118,11 +118,11 @@ Longformer 的 256-window PPL 低 3.94%，但仍在预定 5% 质量带内；wind
 
 ## 8. 可追溯文件
 
-- 训练 runner：[run_person_b.py](experiments/tinystories_tinylm_v1/run_person_b.py)
-- 效率 runner：[benchmark_person_b.py](experiments/tinystories_tinylm_v1/benchmark_person_b.py)
-- attention-only runner：[benchmark_attention_person_b.py](experiments/tinystories_tinylm_v1/benchmark_attention_person_b.py)
-- 机制影响诊断：[mechanism_person_b.py](experiments/tinystories_tinylm_v1/mechanism_person_b.py)
-- 主实验聚合：[person_b_runs.json](experiments/tinystories_tinylm_v1/aggregate/person_b_runs.json)
-- pilot 冻结依据：[person_b_pilot_selection.json](experiments/tinystories_tinylm_v1/aggregate/person_b_pilot_selection.json)
-- 配置：[three_day_validation_screening.yaml](experiments/tinystories_tinylm_v1/three_day_validation_screening.yaml)
-- 计划：[THREE_DAY_EXECUTION_PLAN.md](experiments/tinystories_tinylm_v1/THREE_DAY_EXECUTION_PLAN.md)
+- 训练 runner：[run_person_b.py](../experiments/tinystories_tinylm_v1/run_person_b.py)
+- 效率 runner：[benchmark_person_b.py](../experiments/tinystories_tinylm_v1/benchmark_person_b.py)
+- attention-only runner：[benchmark_attention_person_b.py](../experiments/tinystories_tinylm_v1/benchmark_attention_person_b.py)
+- 机制影响诊断：[mechanism_person_b.py](../experiments/tinystories_tinylm_v1/mechanism_person_b.py)
+- 主实验聚合：[person_b_runs.json](../experiments/tinystories_tinylm_v1/aggregate/person_b_runs.json)
+- pilot 冻结依据：[person_b_pilot_selection.json](../experiments/tinystories_tinylm_v1/aggregate/person_b_pilot_selection.json)
+- 配置：[three_day_validation_screening.yaml](../experiments/tinystories_tinylm_v1/three_day_validation_screening.yaml)
+- 计划：[THREE_DAY_EXECUTION_PLAN.md](../experiments/tinystories_tinylm_v1/THREE_DAY_EXECUTION_PLAN.md)

@@ -255,14 +255,14 @@ GPT-2 Medium、WikiText-2 test、context=512、2044 个 token、3 seeds：
 
 ## 10. 可复现材料
 
-- 总览与协议：[`README.md`](README.md)、[`UNIFIED_EXPERIMENT_PROTOCOL.md`](UNIFIED_EXPERIMENT_PROTOCOL.md)
+- 总览与协议：[`README.md`](../README.md)、[`UNIFIED_EXPERIMENT_PROTOCOL.md`](UNIFIED_EXPERIMENT_PROTOCOL.md)
 - 结构化 Longformer/Memformer 报告：[`B_LONGFORMER_MEMFORMER_EXPERIMENT_REPORT.md`](B_LONGFORMER_MEMFORMER_EXPERIMENT_REPORT.md)
 - 论文条件对齐：[`B_PAPER_COMPARISON_REPORT.md`](B_PAPER_COMPARISON_REPORT.md)
 - Keyformer 深度报告：[`KEYFORMER_REPORT.md`](KEYFORMER_REPORT.md)
-- 统一微基准原始数据：[`benchmark_results.json`](benchmark_results.json)
-- Longformer/Memformer 长序列数据：[`results/b_role/efficiency.json`](results/b_role/efficiency.json)、[`results/b_role/ablations.json`](results/b_role/ablations.json)
-- Keyformer 性能与质量：[`keyformer/results/perf_final.json`](keyformer/results/perf_final.json)、[`keyformer/results/quality_final.json`](keyformer/results/quality_final.json)
-- 最新长上下文筛选：[`experiments/long_context_10m_v1/aggregate/pilot_summary.json`](experiments/long_context_10m_v1/aggregate/pilot_summary.json)、[`experiments/long_context_10m_v1/jobs/jobs.csv`](experiments/long_context_10m_v1/jobs/jobs.csv)
+- 统一微基准原始数据：[`benchmark_results.json`](../benchmark_results.json)
+- Longformer/Memformer 长序列数据：[`results/b_role/efficiency.json`](../results/b_role/efficiency.json)、[`results/b_role/ablations.json`](../results/b_role/ablations.json)
+- Keyformer 性能与质量：[`keyformer/results/perf_final.json`](../keyformer/results/perf_final.json)、[`keyformer/results/quality_final.json`](../keyformer/results/quality_final.json)
+- 最新长上下文筛选：[`experiments/long_context_10m_v1/aggregate/pilot_summary.json`](../experiments/long_context_10m_v1/aggregate/pilot_summary.json)、[`experiments/long_context_10m_v1/jobs/jobs.csv`](../experiments/long_context_10m_v1/jobs/jobs.csv)
 - 各方法质量 JSON：`linformer/results/quality_wikitext.json`、`longformer/results/quality_wikitext.json`、`performer/results/quality_wikitext.json`、`reformer/results/quality_wikitext.json`、`memformer/results/quality_wikitext.json`、`xformer/results/quality_wikitext.json`
 
 **最终结论：**本目录的实验支持“不同架构通过不同设计维度换取效率”的判断，而不支持无条件的总排名。若以当前证据选择：精确和通用工程优先 xFormers/SDPA；长序列局部稀疏优先 Longformer；固定状态和流式历史优先 Memformer；自回归 KV 显存优先 Keyformer；可接受近似且追求线性长度扩展时再考虑 Performer、Linformer 或 Reformer，并必须用充分训练和统一协议验证其质量代价。

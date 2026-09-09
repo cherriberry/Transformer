@@ -56,7 +56,7 @@ A 分享链接：
 
 下载文件逐项大小和 SHA-256 见 [DOWNLOAD_MANIFEST.json](/root/autodl-tmp/26summerBDMI_transformer/source_partA_linformer_performer/DOWNLOAD_MANIFEST.json)。
 
-适配代码见 [run_unified_ab.py](experiments/tinystories_tinylm_v1/run_unified_ab.py)。适配层保留了 A 的：
+适配代码见 [run_unified_ab.py](../experiments/tinystories_tinylm_v1/run_unified_ab.py)。适配层保留了 A 的：
 
 - causal chunked Linformer（`lin_pool=128`）；
 - causal FAVOR+ Performer（`n_features=384`）；

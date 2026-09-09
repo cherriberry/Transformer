@@ -164,7 +164,13 @@ class FactMemoryController(nn.Module):
         features = torch.cat((state.keys, state.values, metadata), dim=-1)
         return torch.sigmoid(self.retention_head(features).squeeze(-1))
 
-    def _choose_targets(self, state: FactMemoryState, candidate_keys: Tensor) -> Tensor:
+    def _choose_targets(
+        self,
+        state: FactMemoryState,
+        candidate_keys: Tensor,
+        *,
+        fixed_eviction_policy: str | None = None,
+    ) -> Tensor:
         active = state.active > self.config.active_threshold
         similarity = torch.einsum(
             "bmd,bd->bm", F.normalize(state.keys, dim=-1, eps=1e-6), candidate_keys
@@ -186,6 +192,14 @@ class FactMemoryController(nn.Module):
                     continue
             if empty_indices.numel():
                 targets[batch_index] = empty_indices[0]
+            elif fixed_eviction_policy == "lru":
+                # The fixed-memory stress baseline must not depend on the
+                # randomly initialized, frozen retention head once capacity is
+                # exhausted.  Evict the least recently accessed active slot;
+                # ``argmin`` gives a deterministic lowest-index tie break.
+                targets[batch_index] = active_indices[
+                    state.last_access[batch_index, active_indices].argmin()
+                ]
             else:
                 targets[batch_index] = retention[batch_index].argmin()
         return targets
@@ -235,6 +249,7 @@ class FactMemoryController(nn.Module):
         *,
         hard: bool,
         fixed_policy: bool = False,
+        fixed_eviction_policy: str | None = None,
     ) -> tuple[FactMemoryState, dict[str, Tensor]]:
         batch, candidate_count, _ = candidates.keys.shape
         commit_mask = commit_mask.to(device=state.keys.device, dtype=torch.bool)
@@ -255,7 +270,11 @@ class FactMemoryController(nn.Module):
                 if fixed_policy
                 else self._write_strength(probability, hard) * candidate_valid
             )
-            targets = self._choose_targets(state, candidate_key)
+            targets = self._choose_targets(
+                state,
+                candidate_key,
+                fixed_eviction_policy=fixed_eviction_policy,
+            )
 
             normalized_keys = F.normalize(state.keys, dim=-1, eps=1e-6)
             similarity = torch.einsum("bmd,bd->bm", normalized_keys, candidate_key)

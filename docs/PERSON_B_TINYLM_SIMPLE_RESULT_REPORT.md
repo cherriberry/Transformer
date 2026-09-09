@@ -50,7 +50,7 @@
 
 最直接的读法是：在 10M screening 中，Memformer 用约 **11.8% 的额外参数**换得约 **3.8% 的 PPL 降低**；但在 100M 扩展中，Longformer 的 PPL 低约 **6.0%**。Memformer 的训练吞吐和峰值显存优势在两种预算下都出现。由于只有一个 seed，以上质量差异都应视为本配置下的趋势，而不是统计显著结论。
 
-![训练与 validation probe 曲线](experiments/tinystories_tinylm_v1/aggregate/person_b_training_validation_curves.png)
+![训练与 validation probe 曲线](../experiments/tinystories_tinylm_v1/aggregate/person_b_training_validation_curves.png)
 
 ## 3. 分指标分析
 
@@ -83,7 +83,7 @@
 
 在 32K token 时，Longformer 延迟约为 Full SDPA 的 **8.22 倍**；Memformer 约为 Full 的 **22.26 倍**、Longformer 的 **2.71 倍**。这说明理论上的线性复杂度没有在当前 adapter 中自动变成速度优势，主要工程瓶颈包括 Python chunk/segment 循环、通用 kernel 调度和完整词表投影。
 
-![完整 TinyLM 前向效率](experiments/tinystories_tinylm_v1/aggregate/person_b_end_to_end_efficiency_curves.png)
+![完整 TinyLM 前向效率](../experiments/tinystories_tinylm_v1/aggregate/person_b_end_to_end_efficiency_curves.png)
 
 隔离成 32K token、单层 attention-only 后：
 
@@ -134,7 +134,7 @@ Memformer 的 attention 工作内存最低，但延迟最高。要把固定 memo
 
 - 详细实验文档：[PERSON_B_TINYLM_DETAILED_EXPERIMENT_DOCUMENT.md](PERSON_B_TINYLM_DETAILED_EXPERIMENT_DOCUMENT.md)
 - 较完整结果报告：[PERSON_B_TINYLM_REPORT.md](PERSON_B_TINYLM_REPORT.md)
-- 主结果 JSON：[person_b_final_summary.json](experiments/tinystories_tinylm_v1/aggregate/person_b_final_summary.json)
-- 端到端效率 JSON：[person_b_efficiency.json](experiments/tinystories_tinylm_v1/aggregate/person_b_efficiency.json)
-- Attention-only JSON：[person_b_attention_efficiency.json](experiments/tinystories_tinylm_v1/aggregate/person_b_attention_efficiency.json)
-- 机制诊断 JSON：[person_b_cross_segment_influence.json](experiments/tinystories_tinylm_v1/aggregate/person_b_cross_segment_influence.json)
+- 主结果 JSON：[person_b_final_summary.json](../experiments/tinystories_tinylm_v1/aggregate/person_b_final_summary.json)
+- 端到端效率 JSON：[person_b_efficiency.json](../experiments/tinystories_tinylm_v1/aggregate/person_b_efficiency.json)
+- Attention-only JSON：[person_b_attention_efficiency.json](../experiments/tinystories_tinylm_v1/aggregate/person_b_attention_efficiency.json)
+- 机制诊断 JSON：[person_b_cross_segment_influence.json](../experiments/tinystories_tinylm_v1/aggregate/person_b_cross_segment_influence.json)

@@ -15,7 +15,7 @@ evaluation, figures, and report are complete:
 - `results/wikitext2/quality_final.json`
 - `results/figures/keyformer_perf.png`
 - `results/figures/keyformer_quality.png`
-- `KEYFORMER_REPORT.md`
+- `../docs/KEYFORMER_REPORT.md`
 
 ## Not in scope here
 

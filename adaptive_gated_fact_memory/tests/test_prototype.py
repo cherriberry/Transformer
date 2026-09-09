@@ -5,6 +5,8 @@ import unittest
 import torch
 
 from adaptive_fact_memory import AdaptiveFactMemoryLM, FactMemoryConfig, SourceRole
+from adaptive_fact_memory.memory import FactCandidates, FactMemoryController
+from adaptive_fact_memory.state import FactMemoryState
 
 
 def tiny_config(**overrides) -> FactMemoryConfig:
@@ -290,6 +292,44 @@ class AdaptiveFactMemoryTests(unittest.TestCase):
             )
         self.assertEqual(int(output.diagnostics["active_slots"]), 0)
         self.assertTrue(bool(output.diagnostics["retention_evicted"][0, 0]))
+
+    def test_fixed_lru_eviction_does_not_use_frozen_retention_head(self) -> None:
+        config = tiny_config(memory_slots=2, memory_read_top_k=2)
+        controller = FactMemoryController(config).eval()
+        state = FactMemoryState.empty(
+            config, 1, device="cpu", dtype=torch.float32
+        )
+        with torch.no_grad():
+            state.active[:] = 1.0
+            state.last_access[:] = torch.tensor([[3, 9]])
+            state.keys[0, 0, 0] = 1.0
+            state.keys[0, 1, 1] = 1.0
+            candidate_key = torch.zeros(1, 1, config.hidden_size)
+            candidate_key[0, 0, 2] = 1.0
+            candidate = FactCandidates(
+                keys=candidate_key,
+                values=torch.ones(1, 1, config.hidden_size),
+                payload_ids=torch.tensor([[[42, 0, 0, 0]]]),
+                payload_mask=torch.tensor([[[True, False, False, False]]]),
+                starts=torch.zeros(1, 1, dtype=torch.long),
+                lengths=torch.ones(1, 1, dtype=torch.long),
+                write_probability=torch.ones(1, 1),
+                confidence=torch.ones(1, 1),
+                valid=torch.ones(1, 1, dtype=torch.bool),
+                start_logits=torch.zeros(1, 1),
+                length_logits=torch.zeros(1, 1, config.payload_tokens),
+                token_write_logits=torch.zeros(1, 1),
+            )
+            updated, diagnostics = controller.commit_facts(
+                state,
+                candidate,
+                torch.ones(1, dtype=torch.bool),
+                hard=True,
+                fixed_policy=True,
+                fixed_eviction_policy="lru",
+            )
+        self.assertEqual(int(diagnostics["write_targets"][0, 0]), 0)
+        self.assertEqual(int(updated.payload_ids[0, 0, 0]), 42)
 
     def test_tinystories_stage_trains_backbone_only(self) -> None:
         model = AdaptiveFactMemoryLM(tiny_config()).train()

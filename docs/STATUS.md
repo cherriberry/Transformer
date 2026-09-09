@@ -2,8 +2,8 @@
 
 > 本表记录的是旧版 WikiText/微基准资产，不是当前 TinyStories/TinyLM
 > validation screening 的完成状态。角色 A/C 的执行入口、待办和验收标准见
-> [HANDOFF_ROLES_A_C.md](HANDOFF_ROLES_A_C.md)；角色 B 的当前结果见根目录的
-> `PERSON_B_TINYLM_*` 报告和 `experiments/tinystories_tinylm_v1/aggregate/`。
+> [HANDOFF_ROLES_A_C.md](HANDOFF_ROLES_A_C.md)；角色 B 的当前结果见本目录的
+> `PERSON_B_TINYLM_*` 报告和 `../experiments/tinystories_tinylm_v1/aggregate/`。
 
 | Method | Perf baseline | WikiText quality | Location |
 |---|---|---|---|

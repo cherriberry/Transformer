@@ -1,7 +1,7 @@
 # Adaptive gated fact memory prototype
 
 This separate research directory implements the first executable version of
-the proposed architecture described in `../TINYLM_EXPERIMENT_QA.md`:
+the proposed architecture described in `../docs/TINYLM_EXPERIMENT_QA.md`:
 
 > exact sink-based local attention plus a shared, content-addressed episodic
 > fact memory with explicit read, write, update, retention and eviction gates.

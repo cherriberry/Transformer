@@ -131,5 +131,5 @@ Longformer 的约 `6×128=768` 层叠传播上限得到体现；Memformer 可以
 - 原简略报告：[PERSON_B_TINYLM_SIMPLE_RESULT_REPORT.md](PERSON_B_TINYLM_SIMPLE_RESULT_REPORT.md)
 - 统一聚合表：[summary.csv](/root/autodl-tmp/26summerBDMI_transformer/aggregate/unified_ab_rerun/summary.csv)
 - 逐 run 结果：[per_run.csv](/root/autodl-tmp/26summerBDMI_transformer/aggregate/unified_ab_rerun/per_run.csv)
-- 统一 runner：[run_unified_ab.py](experiments/tinystories_tinylm_v1/run_unified_ab.py)
+- 统一 runner：[run_unified_ab.py](../experiments/tinystories_tinylm_v1/run_unified_ab.py)
 

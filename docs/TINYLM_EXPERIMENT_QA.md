@@ -789,7 +789,7 @@ RTX 4090 的 24GB 显存足以运行当前 `context=512` 配置。推荐每个 w
 
 ### Q37：B 角色实验实际完成了什么？结果如何？
 
-已按 Q36 执行完成。统一 runner、原始 JSON、详细实验文档和可复核报告位于 `experiments/tinystories_tinylm_v1/` 与根目录的 `PERSON_B_TINYLM_DETAILED_EXPERIMENT_DOCUMENT.md`、`PERSON_B_TINYLM_REPORT.md`。
+已按 Q36 执行完成。统一 runner 和原始 JSON 位于 `experiments/tinystories_tinylm_v1/`；详细实验文档和可复核报告位于 `docs/PERSON_B_TINYLM_DETAILED_EXPERIMENT_DOCUMENT.md`、`docs/PERSON_B_TINYLM_REPORT.md`。
 
 部署计划仍是三人各占一张 RTX 4090；本次实际执行环境只暴露一张 RTX 4090，因此 B 角色的四个 pilot、两个 main 和效率矩阵均按单卡顺序运行，未把并发争用结果混入正式结果。
 

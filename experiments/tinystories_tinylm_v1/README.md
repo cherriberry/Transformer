@@ -4,7 +4,7 @@
 
 Before implementing Linformer, Performer, Reformer, Full-Attention reference,
 or TinyLM/RoPE Keyformer evaluation, read the repository-level
-[HANDOFF_ROLES_A_C.md](../../HANDOFF_ROLES_A_C.md). It is the executable
+[HANDOFF_ROLES_A_C.md](../../docs/HANDOFF_ROLES_A_C.md). It is the executable
 handoff: it defines the frozen protocol, runner interfaces, correctness tests,
 raw JSON schema, required metrics, and the allowed interpretation of results.
 
@@ -37,9 +37,9 @@ seed and its validation curve is still descending.
 
 ## Person-B result entry points
 
-- Quick-look result report: `../../PERSON_B_TINYLM_SIMPLE_RESULT_REPORT.md`
-- Detailed experiment document: `../../PERSON_B_TINYLM_DETAILED_EXPERIMENT_DOCUMENT.md`
-- Compact result report: `../../PERSON_B_TINYLM_REPORT.md`
+- Quick-look result report: `../../docs/PERSON_B_TINYLM_SIMPLE_RESULT_REPORT.md`
+- Detailed experiment document: `../../docs/PERSON_B_TINYLM_DETAILED_EXPERIMENT_DOCUMENT.md`
+- Compact result report: `../../docs/PERSON_B_TINYLM_REPORT.md`
 - Correctness: `aggregate/person_b_correctness.json`
 - Pilot selection: `aggregate/person_b_pilot_selection.json`
 - Main-run summaries: `aggregate/person_b_runs.json` and
