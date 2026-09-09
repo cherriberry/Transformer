@@ -1,0 +1,51 @@
+# Resolved first-stage TinyStories configuration.
+# This stage pretrains the local language-model backbone only.  Do not use its
+# metrics as fact-memory retrieval evidence.
+stage: stage1_tinystories_backbone_pretraining
+dataset:
+  id: roneneldan/TinyStories
+  revision: f54c09fd23315a6f9c86f9dc80f725de7d8f9c64
+  tokenizer: openai-community/gpt2
+  tokenizer_revision: 607a30d783dfa663caf39e06633721c8d4cfcd7e
+  context: 512
+  train_tokens: 10000000
+  validation: full_validation_stream
+  add_eos_at_document_end: true
+  cross_document_packing: true
+architecture:
+  layers: 6
+  hidden_size: 384
+  heads: 8
+  ffn_size: 1536
+  attention_budget: 128
+  sink_tokens: 4
+  recent_window: 124
+  memory_slots: 64
+  memory_read_top_k: 8
+  memory_fusion_layers: [2, 5]
+  tie_word_embeddings: true
+optimization:
+  optimizer: AdamW
+  learning_rate: 0.0003
+  minimum_learning_rate: 0.00003
+  betas: [0.9, 0.95]
+  epsilon: 0.00000001
+  weight_decay: 0.1
+  warmup_ratio: 0.03
+  schedule: cosine
+  gradient_clip_norm: 1.0
+  compute_dtype: bfloat16
+  parameter_dtype: float32
+batching:
+  micro_batch_sequences: 4
+  gradient_accumulation_steps: 4
+  effective_batch_tokens: 8192
+seed: 17
+memory_training:
+  episodic_path_enabled: false
+  fact_supervision_available: false
+  reset_state_per_packed_block: true
+  next_stage: structured_dialogue_fact_memory_training
+storage:
+  root: /root/autodl-tmp/26summerBDMI_transformer
+  run_id: tinystories_backbone_s17_10m_20260908
