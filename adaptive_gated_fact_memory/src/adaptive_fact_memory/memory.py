@@ -574,13 +574,23 @@ class SharedMemoryFusion(nn.Module):
         *,
         fixed_gate: bool = False,
         gate_override: float | None = None,
+        value_mode: str = "combined",
     ) -> tuple[Tensor, Tensor]:
         payload_embeddings = token_embedding(selection.payload_ids)
         payload_denominator = selection.payload_mask.sum(dim=-1, keepdim=True).clamp_min(1)
         payload_summary = (
             payload_embeddings * selection.payload_mask[..., None]
         ).sum(dim=2) / payload_denominator.to(payload_embeddings.dtype)
-        memory_values = selection.values + payload_summary
+        if value_mode == "combined":
+            memory_values = selection.values + payload_summary
+        elif value_mode == "payload_only":
+            memory_values = payload_summary
+        elif value_mode == "value_only":
+            memory_values = selection.values
+        else:
+            raise ValueError(
+                "value_mode must be one of {'combined', 'payload_only', 'value_only'}"
+            )
         query = self.to_q(hidden)
         key = self.to_k(selection.keys)
         value = self.to_v(memory_values)

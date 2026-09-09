@@ -56,6 +56,7 @@ class DecoderBlock(nn.Module):
         memory_enabled: bool = True,
         fixed_memory_fusion: bool = False,
         fusion_gate_override: float | None = None,
+        memory_value_mode: str = "combined",
     ):
         local, new_cache, attention_diagnostics = self.local_attention.forward_chunk(
             self.local_norm(hidden), cache, rotary, position_ids, token_mask
@@ -70,6 +71,7 @@ class DecoderBlock(nn.Module):
                 memory_visibility,
                 fixed_gate=fixed_memory_fusion,
                 gate_override=fusion_gate_override,
+                value_mode=memory_value_mode,
             )
             hidden = hidden + self.dropout(memory_residual)
         ffn = self.ffn_out(F.gelu(self.ffn_in(self.ffn_norm(hidden))))
@@ -100,6 +102,7 @@ class AdaptiveFactMemoryLM(nn.Module):
         *,
         memory_policy: str = "gated",
         fusion_gate_override: float | None = None,
+        memory_value_mode: str = "combined",
     ):
         super().__init__()
         if memory_policy not in self.VALID_MEMORY_POLICIES:
@@ -110,6 +113,9 @@ class AdaptiveFactMemoryLM(nn.Module):
         self.config = config
         self.memory_policy = memory_policy
         self.fusion_gate_override = fusion_gate_override
+        if memory_value_mode not in {"combined", "payload_only", "value_only"}:
+            raise ValueError("invalid memory_value_mode")
+        self.memory_value_mode = memory_value_mode
         self.token_embedding = nn.Embedding(config.vocab_size, config.hidden_size)
         self.rotary = RotaryEmbedding(config.head_dim, config.rope_max_position)
         fusion_layers = set(config.memory_fusion_layers)
@@ -403,6 +409,7 @@ class AdaptiveFactMemoryLM(nn.Module):
                 memory_enabled=memory_enabled,
                 fixed_memory_fusion=self.memory_policy in {"fixed", "fixed_lru"},
                 fusion_gate_override=self.fusion_gate_override,
+                memory_value_mode=self.memory_value_mode,
             )
             new_caches.append(new_cache)
             layer_diagnostics.append(attention_diagnostics)

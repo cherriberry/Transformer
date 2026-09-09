@@ -157,6 +157,7 @@ def load_stress_model(
     memory_slots: int,
     memory_read_top_k: int,
     fusion_gate_override: float | None = None,
+    memory_value_mode: str = "combined",
 ) -> AdaptiveFactMemoryLM:
     config = FactMemoryConfig(
         memory_slots=memory_slots,
@@ -176,6 +177,7 @@ def load_stress_model(
         config,
         memory_policy=memory_policy,
         fusion_gate_override=fusion_gate_override,
+        memory_value_mode=memory_value_mode,
     ).to(device)
     checkpoint = torch.load(BACKBONE_CHECKPOINT, map_location="cpu", weights_only=False)
     state_dict = checkpoint.get("model", checkpoint)
@@ -766,6 +768,7 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
         memory_slots=args.memory_slots,
         memory_read_top_k=args.memory_read_top_k,
         fusion_gate_override=args.fusion_gate_override,
+        memory_value_mode=args.memory_value_mode,
     )
     model.train()
     optimizer = torch.optim.AdamW(
@@ -815,6 +818,7 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
             "retention_threshold_training": 0.1,
             "fusion_gate_override": args.fusion_gate_override,
             "answer_leading_space": args.answer_leading_space,
+            "memory_value_mode": args.memory_value_mode,
         },
         "request": vars(args),
         "environment": environment_record(device),
@@ -931,6 +935,7 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
             memory_slots=args.memory_slots,
             memory_read_top_k=args.memory_read_top_k,
             fusion_gate_override=args.fusion_gate_override,
+            memory_value_mode=args.memory_value_mode,
         )
         eval_model.load_state_dict(model.state_dict())
         eval_model.eval()
@@ -998,6 +1003,12 @@ def parse_args() -> argparse.Namespace:
         "--answer-leading-space",
         action="store_true",
         help="Encode answer values with a leading space, matching fact payload tokenization.",
+    )
+    parser.add_argument(
+        "--memory-value-mode",
+        choices=("combined", "payload_only", "value_only"),
+        default="combined",
+        help="Choose which stored value representation is sent to memory fusion.",
     )
     parser.add_argument("--steps", type=int, default=2_000)
     parser.add_argument("--batch-size", type=int, default=2)
