@@ -336,10 +336,11 @@ Value-token Gated 在全部 $12$ 个验证条件中均取得 $100\%$ EM，包括
 
 门控输出的只读审计进一步揭示了控制器的行为。288 个 durable 候选的写入概率最小、平均和最大值均为 $1.000000$；1,008 个 temporary 候选的写入概率平均为 $5.69\times10^{-7}$，最大值为 $2.62\times10^{-5}$，全部在硬阈值下被拒绝。目标槽位的保留概率均值为 $0.999239$，范围为 $[0.999117,0.999296]$。两个融合层的查询门均值分别为 $0.999295$ 和 $0.984094$，说明旧 Gated 的低 EM 不能主要归因于记忆被门控关闭。不过，这些概率在当前有明确 durable/temporary 提示的任务上接近饱和；对于重要性模糊或事实过期的真实对话，是否能够主动降低保留权重仍需测试。
 
-\begin{table*}[t]
+\begin{table}[t]
 \centering
 \caption{Dense 条件按临时事实数量聚合的结果。每行包含三个延迟条件，共 72 条样本。}
 \label{tab:noise}
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{rrrrrr}
 \toprule
 Noise & old EM (\%) & old Surv. (\%) & old R@1 (\%) & Fixed EM (\%) & V3 EM (\%)\\
@@ -350,7 +351,8 @@ Noise & old EM (\%) & old Surv. (\%) & old R@1 (\%) & Fixed EM (\%) & V3 EM (\%)
 8 & 55.56 & 100.00 & 100.00 & 61.11 & 100.00\\
 \bottomrule
 \end{tabular}
-\end{table*}
+}%
+\end{table}
 
 \subsection{训练进程与 checkpoint 稳定性}
 
@@ -376,10 +378,11 @@ Step & EM (\%) & Rank & Margin & Aux. exact (\%)\\
 
 表~\ref{tab:efficiency} 给出主要资源指标。值片段与词元路径使 Dense 模型参数增加 $305{,}293$，相当于 $0.96\%$；完整 recurrent state 增加 $14{,}796$ bytes，即 $0.61\%$。单个活跃槽位的逻辑字节数因新增 $384$ 维 lexical vector 与值 ID/mask 增加 $51.0\%$，但局部六层 KV cache 占据了完整状态的主要部分，因此总体增幅较小。训练时间增加 $4.31\%$，峰值 allocated 显存增加 $0.36\%$。
 
-\begin{table*}[t]
+\begin{table}[t]
 \centering
 \caption{架构扩展的资源开销。Active/token 是每个 token 参与计算的参数量；当前状态张量按最大槽位预分配，逻辑活跃字节不等于物理显存节省。}
 \label{tab:efficiency}
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{lrrrrrr}
 \toprule
 模型 & 总参数 & Active/token & State bytes & 训练时间 (s) & 吞吐 (ex/s) & Peak alloc. (GB)\\
@@ -390,16 +393,18 @@ old Gated MoE & 60.18M & 38.94M & 2,423,702 & 1905.0 & 4.20 & 3.201\\
 Value-token MoE & 60.48M & 39.25M & 2,423,702 & 1927.1 & 4.15 & 3.205\\
 \bottomrule
 \end{tabular}
-\end{table*}
+}%
+\end{table}
 
 MoE 将 Value-token 模型总参数从 $32.16$M 增加到 $60.48$M，而每 token 激活约 $39.25$M 参数。与对应 Dense 模型相比，其训练时间增加 $39.6\%$、吞吐下降 $28.4\%$、峰值 allocated 显存增加约 $19.5\%$。该开销反映普通 PyTorch token indexing、逐专家前向和 \texttt{index\_add} 原型，不能代表 fused grouped-GEMM 等优化实现的上限。
 
 最终 checkpoint 的路由审计未显示 expert collapse。Value-token Gated + MoE 的四个专家 token fraction 为 $0.471/0.508/0.511/0.511$，加权 dispatch fraction 为 $0.239/0.259/0.244/0.258$，路由熵为 $1.355$。在 Top-2 设置下，均匀 token fraction 的参考值约为 $0.5$，dispatch fraction 的参考值约为 $0.25$；因此四个专家均获得了有效负载。
 
-\begin{table*}[t]
+\begin{table}[t]
 \centering
 \caption{MoE 路由与负载均衡审计。Token fraction 的四项之和约为 2，dispatch fraction 的四项之和约为 1。}
 \label{tab:moe-routing}
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{lccr}
 \toprule
 条件 & Token fraction (E0/E1/E2/E3) & Dispatch fraction & 熵\\
@@ -410,7 +415,8 @@ old Gated & .545/.457/.569/.429 & .275/.232/.270/.223 & 1.312\\
 Value-token & .471/.508/.511/.511 & .239/.259/.244/.258 & 1.355\\
 \bottomrule
 \end{tabular}
-\end{table*}
+}%
+\end{table}
 
 \subsection{与六种基础架构及滑动窗口参考的综合比较}
 
@@ -423,7 +429,7 @@ Keyformer 推理期缓存压缩；第三层是本文的选择性事实记忆压�
 表中的 ``N/A'' 表示该架构在相应协议下没有定义该指标，而不是性能为零。
 
 \paragraph{六种训练型架构的 Dense 比较。}
-表~\ref{tab:six-dense-comparison} 汇总统一 TinyStories 协议下的 Dense FFN 结果。训练
+表~\ref{tab:six-dense-comparison} 是本节的跨双栏总表，汇总统一 TinyStories 协议下的 Dense FFN 结果。训练
 吞吐包含周期性 probe 和 checkpoint；为便于直观比较，训练时间由 $10^7$ 个预测词元
 除以该吞吐得到，是 run-level 墙钟时间的近似值。Full Attention 和 Reformer 的结果
 来自 C v2 协议，其他四种结果来自 A+B unified 协议；它们共享 TinyLM 维度和主要优化
@@ -432,7 +438,7 @@ Keyformer 推理期缓存压缩；第三层是本文的选择性事实记忆压�
 \begin{table*}[t]
 \centering
 \scriptsize
-\caption{六种基础架构的 Dense FFN 结果。时间为十百万预测词元的近似墙钟时间；Keyformer 不属于训练型架构，故单列于后文。}
+\caption{总表：六种基础架构的 Dense FFN 结果。时间为十百万预测词元的近似墙钟时间；Keyformer 不属于训练型架构，故单列于后文。}
 \label{tab:six-dense-comparison}
 \begin{tabular}{l l r r r r r l}
 \toprule
@@ -465,7 +471,7 @@ Reformer 的吞吐接近 Full Attention，但其质量低于前述三种路径�
 \begin{table*}[t]
 \centering
 \scriptsize
-\caption{六种骨干在全层 MoE 下的 seed-17 结果。Keyformer 使用 Full-Attention+MoE 检查点，但本身不参与训练。}
+\caption{总表：六种骨干在全层 MoE 下的 seed-17 结果。Keyformer 使用 Full-Attention+MoE 检查点，但本身不参与训练。}
 \label{tab:six-moe-comparison}
 \begin{tabular}{l r r r r r r}
 \toprule
@@ -517,11 +523,12 @@ linear attention'' 本身的作者署名并非 Google，且截至本实验记录
 \texttt{LOCAL\_SLIDING} 仅作为代码级窗口构造参考；二者都不与本文 TinyLM 的绝对
 PPL、训练时间或事实记忆 EM 直接合并。
 
-\begin{table*}[t]
+\begin{table}[t]
 \centering
 \scriptsize
-\caption{本文事实记忆与六种基础路径的机制级对照。六种基础架构的长期事实指标在当前 TinyStories 语言建模协议中未测量，故不以 N/A 伪装成零。}
+\caption{栏目分析表：本文事实记忆与六种基础路径的机制级对照。该表只服务于机制分析，采用单栏排版；六种基础架构的长期事实指标在当前 TinyStories 语言建模协议中未测量，故不以 N/A 伪装成零。}
 \label{tab:memory-mechanism-comparison}
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{l l l l l}
 \toprule
 方案 & 训练时是否改变 attention/状态 & 长期状态形式 & 是否能内容级拒绝噪声 & 主要记忆风险 \\
@@ -536,7 +543,39 @@ Keyformer & 否，仅推理 cache & 重要旧 KV+recent KV & 部分（按重要�
 本文 Value-token Gated & 是，局部 attention 外接事实记忆 & 8 个内容门控语义/词汇槽 & 是，写入+保留+合并 & 依赖事实边界与门控泛化 \\
 \bottomrule
 \end{tabular}
+}%
+\end{table}
+
+\begin{table*}[t]
+\centering
+\scriptsize
+\caption{外部滑动窗口与线性注意力文献的结果清单。数值来自~\cite{jolicoeur2026sliding} 的恢复率表，不能与本文 TinyLM 的 PPL、EM 或训练时间直接合并；``--'' 表示原文未报告。}
+\label{tab:external-swa-list}
+\begin{tabular}{l r l r r}
+\toprule
+方法 & 后训练词元 & 阶段数 & MMLU 恢复率 (\%) & 六任务平均恢复率 (\%) \\
+\midrule
+SUPRA & 100B & 1 & 53.0$\pm$0.0 & 88.1$\pm$0.0 \\
+Hedgehog & 40M & 2 & 36.9$\pm$0.0 & 73.9$\pm$0.0 \\
+LoLCATs & 40M & 2 & 83.2$\pm$2.2 & 97.5$\pm$1.3 \\
+Liger-GLA & 20M & 1 & 62.2$\pm$5.8 & 92.0$\pm$2.8 \\
+MOHAWK & 3--5B & 3 & 56.9$\pm$0.0 & 92.4$\pm$0.0 \\
+Mamba in the Llama & 20B & 2 & 67.7$\pm$0.0 & 86.7$\pm$0.0 \\
+DiJiang & 40B & 1 & 88.7$\pm$0.0 & -- \\
+ARWKV & 60M/830M & 2/3 & 84.1$\pm$0.0 & 94.7$\pm$0.0 \\
+Llamba & 8--12B & 3 & 91.5$\pm$0.0 & 98.6$\pm$0.0 \\
+QLinAtt & 350--700M & 3 & 74.0$\pm$0.0 & 92.9$\pm$0.0 \\
+QRWKV6 & 350--700M & 3 & 92.4$\pm$2.7 & 99.1$\pm$0.8 \\
+QRWKV7 & 350--700M & 3 & 86.4$\pm$6.8 & 96.1$\pm$4.1 \\
+SWA($w=64,s=4$) & 0 & 0 & 93.2$\pm$3.5 & 99.0$\pm$0.5 \\
+\bottomrule
+\end{tabular}
 \end{table*}
+
+Google Gemma-PyTorch 中的 \texttt{LOCAL\_SLIDING} 作为局部滑动窗口的代码参考，
+但并未在上述论文表中作为一个独立的 benchmark 方法报告，因此其对应数值记为未测量。
+本文的 $4$ 个 sink 加 $124$ 个 recent token 与该类局部窗口设计具有相同的状态约束
+思想，但额外添加了内容门控事实槽位。
 
 \paragraph{事实记忆压力测试中的端到端对照。}
 六种基础架构的 TinyStories PPL 不能回答“重要事实在数千个干扰词元后是否仍被保留”。
@@ -553,17 +592,45 @@ Keyformer & 否，仅推理 cache & 重要旧 KV+recent KV & 部分（按重要�
 \toprule
 FFN & 记忆条件 & EM $\uparrow$ & Answer NLL $\downarrow$ & Survival $\uparrow$ & Recall@1 $\uparrow$ & Avg. slots $\downarrow$ & Noise accept $\downarrow$ & 训练时间 (s) \\
 \midrule
-Dense & SWA-only & 5.21\% & 1.38947 & N/A & N/A & 0.00 & N/A & -- \\
-Dense & Fixed-LRU & 74.65\% & 0.50323 & 92.01\% & 90.28\% & 4.25 & 75.00\% & -- \\
+Dense & SWA-only & 5.21\% & 1.38947 & N/A & N/A & 0.00 & N/A & 880.1 \\
+Dense & Fixed-LRU & 74.65\% & 0.50323 & 92.01\% & 90.28\% & 4.25 & 75.00\% & 1200.6 \\
 Dense & old Gated & 52.43\% & 0.63089 & 100.00\% & 100.00\% & 1.00 & 0.00\% & 1323.0 \\
 Dense & Value-token Gated & \textbf{100.00\%} & \textbf{0.00001946} & \textbf{100.00\%} & \textbf{100.00\%} & \textbf{1.00} & \textbf{0.00\%} & \textbf{1380.1} \\
-MoE & SWA-only & 5.21\% & 1.38736 & N/A & N/A & 0.00 & N/A & -- \\
-MoE & Fixed-LRU & 65.28\% & 0.57731 & 93.06\% & 93.06\% & 4.25 & 75.00\% & -- \\
+MoE & SWA-only & 5.21\% & 1.38736 & N/A & N/A & 0.00 & N/A & 1479.8 \\
+MoE & Fixed-LRU & 65.28\% & 0.57731 & 93.06\% & 93.06\% & 4.25 & 75.00\% & 1804.0 \\
 MoE & old Gated & 32.99\% & 0.85217 & 100.00\% & 100.00\% & 1.00 & 0.00\% & 1905.0 \\
 MoE & Value-token Gated & \textbf{100.00\%} & \textbf{0.00002212} & \textbf{100.00\%} & \textbf{100.00\%} & \textbf{1.00} & \textbf{0.00\%} & \textbf{1927.1} \\
 \bottomrule
 \end{tabular}
 \end{table*}
+
+\begin{table*}[t]
+\centering
+\scriptsize
+\caption{选择性记忆实验的完整训练与存储开销清单。时间、吞吐和显存来自 2,000 步 seed-17 run；state bytes 是完整 recurrent state 的逻辑大小，不能等同于 GPU 物理显存。}
+\label{tab:memory-resource-list}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l l r r r r r r r r}
+\toprule
+FFN & 条件 & 总参数 & Active/token & 时间 (s) & 吞吐 (ex/s) & Peak alloc. (GB) & Peak reserved (GB) & State bytes & Active slots \\
+\midrule
+Dense & SWA-only & 31.85M & 31.85M & 880.1 & 9.09 & 2.871 & 6.881 & 2,423,702 & 0.00 \\
+Dense & Fixed-LRU & 31.85M & 31.85M & 1200.6 & 6.66 & 2.666 & 6.568 & 2,423,702 & 4.25 \\
+Dense & old Gated & 31.85M & 31.85M & 1323.0 & 6.05 & 2.673 & 6.648 & 2,423,702 & 1.00 \\
+Dense & Value-token Gated & 32.16M & 32.16M & 1380.1 & 5.80 & 2.682 & 6.702 & 2,423,702 & 1.00 \\
+MoE & SWA-only & 60.18M & 38.94M & 1479.8 & 5.41 & 3.433 & 7.176 & 2,423,702 & 0.00 \\
+MoE & Fixed-LRU & 60.18M & 38.94M & 1804.0 & 4.43 & 3.190 & 6.960 & 2,423,702 & 4.25 \\
+MoE & old Gated & 60.18M & 38.94M & 1905.0 & 4.20 & 3.201 & 7.021 & 2,423,702 & 1.00 \\
+MoE & Value-token Gated & 60.48M & 39.25M & 1927.1 & 4.15 & 3.205 & 6.984 & 2,423,702 & 1.00 \\
+\bottomrule
+\end{tabular}
+}%
+\end{table*}
+
+该完整清单显示，Value-token Gated 相比 old Gated 只增加约 $0.96\%$ Dense 参数和
+$4.31\%$ 训练时间，却将 EM 从 $52.43\%$ 提升至 $100\%$。相同记忆路径切换到
+Top-2 MoE 后，总参数增加约 $88.9\%$，训练时间增加 $39.6\%$，吞吐下降 $28.4\%$，
+峰值 allocated 显存增加约 $19.5\%$；因此“稀疏激活”不等于“低总存储或低训练成本”。
 
 该表揭示了本文架构相对于六种基础 attention 路径的额外能力。SWA-only 与一般固定
 窗口路径一样，不能在局部 KV 之外提供稳定的事实恢复；Fixed-LRU 虽然获得较高 EM，
