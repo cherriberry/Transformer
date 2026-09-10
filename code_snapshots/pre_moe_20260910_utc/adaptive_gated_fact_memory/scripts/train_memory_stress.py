@@ -129,13 +129,6 @@ def autocast_context(device: torch.device):
     return contextlib.nullcontext()
 
 
-def _mean_moe_expert_fractions(fractions: list[torch.Tensor]) -> torch.Tensor:
-    """Average MoE fractions over rounds and layers, preserving experts."""
-
-    stacked = torch.stack(fractions).float()
-    return stacked.reshape(-1, stacked.shape[-1]).mean(dim=0)
-
-
 def environment_record(device: torch.device) -> dict[str, Any]:
     record: dict[str, Any] = {
         "created_at_utc": utc_now(),
@@ -166,8 +159,6 @@ def load_stress_model(
     fusion_gate_override: float | None = None,
     memory_value_mode: str = "combined",
     value_token_alignment: bool = False,
-    moe_experts: int = 1,
-    moe_top_k: int = 1,
 ) -> AdaptiveFactMemoryLM:
     config = FactMemoryConfig(
         memory_slots=memory_slots,
@@ -182,8 +173,6 @@ def load_stress_model(
         merge_threshold=0.999,
         write_threshold=0.1 if training else 0.5,
         retention_threshold=0.1 if training else 0.5,
-        moe_experts=moe_experts,
-        moe_top_k=moe_top_k,
     )
     model = AdaptiveFactMemoryLM(
         config,
@@ -203,30 +192,19 @@ def load_stress_model(
         "memory_token_norm.",
     )
     allowed_new_exact = {"memory_token_positions"}
-    def is_new_moe_parameter(name: str) -> bool:
-        return ".moe." in name
-
     disallowed_missing = [
         name
         for name in missing
-        if not (
-            is_new_moe_parameter(name)
-            or (value_token_alignment and (
-                name in allowed_new_exact
-                or any(name.startswith(prefix) for prefix in allowed_new_prefixes)
-            ))
+        if not value_token_alignment
+        or (
+            name not in allowed_new_exact
+            and not any(name.startswith(prefix) for prefix in allowed_new_prefixes)
         )
     ]
     if disallowed_missing or unexpected:
         raise RuntimeError(
             f"checkpoint mismatch; missing={disallowed_missing}, unexpected={unexpected}"
         )
-    # In MoE mode the old dense FFN is present in the parent checkpoint.  Use
-    # it to initialize every expert before training, while retaining the
-    # dense parameters in the module for checkpoint compatibility.
-    if moe_experts > 1:
-        for block in model.blocks:
-            block.initialize_moe_from_dense()
     # The stress protocol does not study assistant-state writes.
     with torch.no_grad():
         model.memory_controller.assistant_write_head.bias.fill_(-10.0)
@@ -408,7 +386,6 @@ def stress_training_batch_loss(
     value_length_loss_weight: float = 0.25,
     candidate_token_loss_weight: float = 0.50,
     retrieved_token_loss_weight: float = 0.50,
-    moe_load_balance_weight: float = 0.01,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Train one variable-length durable/noise/delay/query conversation batch."""
 
@@ -424,7 +401,6 @@ def stress_training_batch_loss(
     state_before_query = None
     tracked_target_slots: list[int | None] = [None for _ in examples]
     retention_terms_over_time: list[torch.Tensor] = []
-    moe_round_losses: list[torch.Tensor] = []
     query_index = len(rounds) - 1
 
     for round_index, collated in enumerate(rounds):
@@ -441,7 +417,6 @@ def stress_training_batch_loss(
             hard_memory=False,
         )
         round_outputs.append(output)
-        moe_round_losses.append(output.diagnostics.get("moe_aux_loss", output.logits.sum() * 0.0))
         state = output.state
         if memory_policy == "none":
             # Only the answer round has assistant targets in this protocol.
@@ -549,35 +524,6 @@ def stress_training_batch_loss(
                 "read_target_score": 0.0,
             }
         )
-        # Apply the same MoE objective to SWA-only so memory-policy comparisons
-        # differ only in the memory path, not in FFN training.
-        moe_loss = torch.stack(moe_round_losses).mean()
-        total = total + moe_load_balance_weight * moe_loss
-        scalar["moe_load_balance"] = float(moe_loss.detach().cpu())
-        token_fracs = [
-            item.diagnostics["moe_expert_token_fraction"]
-            for item in round_outputs
-            if item.diagnostics["moe_expert_token_fraction"].numel()
-        ]
-        dispatch_fracs = [
-            item.diagnostics["moe_expert_dispatch_fraction"]
-            for item in round_outputs
-            if item.diagnostics["moe_expert_dispatch_fraction"].numel()
-        ]
-        entropies = [
-            item.diagnostics["moe_routing_entropy"]
-            for item in round_outputs
-            if item.diagnostics["moe_routing_entropy"].numel()
-        ]
-        if token_fracs:
-            for expert_index, value in enumerate(_mean_moe_expert_fractions(token_fracs)):
-                scalar[f"moe_expert_{expert_index}_token_fraction"] = float(value.detach().cpu())
-            for expert_index, value in enumerate(
-                _mean_moe_expert_fractions(dispatch_fracs)
-            ):
-                scalar[f"moe_expert_{expert_index}_dispatch_fraction"] = float(value.detach().cpu())
-            scalar["moe_routing_entropy"] = float(torch.stack(entropies).float().mean().detach().cpu())
-        scalar["total"] = float(total.detach().cpu())
         return total, scalar
 
     if state_before_query is None:
@@ -643,10 +589,6 @@ def stress_training_batch_loss(
             "budget": budget_loss,
         }
     )
-
-    moe_loss = torch.stack(
-        [output.diagnostics.get("moe_aux_loss", read_loss * 0.0) for output in round_outputs]
-    ).mean()
     candidate_token_accuracy = 0.0
     candidate_token_exact = 0.0
     retrieved_token_accuracy = 0.0
@@ -705,7 +647,6 @@ def stress_training_batch_loss(
             + value_length_loss_weight * durable_losses["value_length"]
             + candidate_token_loss_weight * candidate_token_loss
             + retrieved_token_loss_weight * retrieved_token_loss
-            + moe_load_balance_weight * moe_loss
         )
     else:
         total = (
@@ -721,38 +662,8 @@ def stress_training_batch_loss(
             + value_length_loss_weight * durable_losses["value_length"]
             + candidate_token_loss_weight * candidate_token_loss
             + retrieved_token_loss_weight * retrieved_token_loss
-            + moe_load_balance_weight * moe_loss
         )
     scalar = {name: float(value.detach().cpu()) for name, value in durable_losses.items()}
-    if model.config.moe_experts > 1:
-        token_fracs = [
-            output.diagnostics["moe_expert_token_fraction"]
-            for output in round_outputs
-            if output.diagnostics["moe_expert_token_fraction"].numel()
-        ]
-        dispatch_fracs = [
-            output.diagnostics["moe_expert_dispatch_fraction"]
-            for output in round_outputs
-            if output.diagnostics["moe_expert_dispatch_fraction"].numel()
-        ]
-        entropies = [
-            output.diagnostics["moe_routing_entropy"]
-            for output in round_outputs
-            if output.diagnostics["moe_routing_entropy"].numel()
-        ]
-        if token_fracs:
-            mean_token_fracs = _mean_moe_expert_fractions(token_fracs)
-            mean_dispatch_fracs = _mean_moe_expert_fractions(dispatch_fracs)
-            for expert_index in range(model.config.moe_experts):
-                scalar[f"moe_expert_{expert_index}_token_fraction"] = float(
-                    mean_token_fracs[expert_index].detach().cpu()
-                )
-                scalar[f"moe_expert_{expert_index}_dispatch_fraction"] = float(
-                    mean_dispatch_fracs[expert_index].detach().cpu()
-                )
-            scalar["moe_routing_entropy"] = float(
-                torch.stack(entropies).float().mean().detach().cpu()
-            )
     scalar.update(
         {
             "total": float(total.detach().cpu()),
@@ -763,7 +674,6 @@ def stress_training_batch_loss(
             "candidate_memory_token_exact": candidate_token_exact,
             "retrieved_memory_token_accuracy": retrieved_token_accuracy,
             "retrieved_memory_token_exact": retrieved_token_exact,
-            "moe_load_balance": float(moe_loss.detach().cpu()),
         }
     )
     return total, scalar
@@ -1216,8 +1126,6 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
         fusion_gate_override=args.fusion_gate_override,
         memory_value_mode=args.memory_value_mode,
         value_token_alignment=args.value_token_alignment,
-        moe_experts=args.moe_experts,
-        moe_top_k=args.moe_top_k,
     )
     model.train()
     optimizer = torch.optim.AdamW(
@@ -1287,9 +1195,6 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
             "value_length_loss_weight": args.value_length_loss_weight,
             "candidate_token_loss_weight": args.candidate_token_loss_weight,
             "retrieved_token_loss_weight": args.retrieved_token_loss_weight,
-            "moe_experts": args.moe_experts,
-            "moe_top_k": args.moe_top_k,
-            "moe_load_balance_weight": args.moe_load_balance_weight,
         },
         "request": vars(args),
         "environment": environment_record(device),
@@ -1347,7 +1252,6 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
                             value_length_loss_weight=args.value_length_loss_weight,
                             candidate_token_loss_weight=args.candidate_token_loss_weight,
                             retrieved_token_loss_weight=args.retrieved_token_loss_weight,
-                            moe_load_balance_weight=args.moe_load_balance_weight,
                         )
                     (loss / args.gradient_accumulation_steps).backward()
                     for name, value in scalars.items():
@@ -1415,8 +1319,6 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
             fusion_gate_override=args.fusion_gate_override,
             memory_value_mode=args.memory_value_mode,
             value_token_alignment=args.value_token_alignment,
-            moe_experts=args.moe_experts,
-            moe_top_k=args.moe_top_k,
         )
         eval_model.load_state_dict(model.state_dict())
         eval_model.eval()
@@ -1509,9 +1411,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--value-length-loss-weight", type=float, default=0.25)
     parser.add_argument("--candidate-token-loss-weight", type=float, default=0.50)
     parser.add_argument("--retrieved-token-loss-weight", type=float, default=0.50)
-    parser.add_argument("--moe-experts", type=int, default=1)
-    parser.add_argument("--moe-top-k", type=int, default=1)
-    parser.add_argument("--moe-load-balance-weight", type=float, default=0.01)
     parser.add_argument("--steps", type=int, default=2_000)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=2)

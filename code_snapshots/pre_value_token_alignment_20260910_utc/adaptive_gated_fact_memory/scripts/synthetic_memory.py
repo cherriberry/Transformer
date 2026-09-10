@@ -25,8 +25,6 @@ class MemoryRound:
     roles: tuple[int, ...]
     fact_starts: tuple[int, ...] = ()
     fact_lengths: tuple[int, ...] = ()
-    value_starts: tuple[int, ...] = ()
-    value_lengths: tuple[int, ...] = ()
     answer_start: int | None = None
     answer_ids: tuple[int, ...] = ()
 
@@ -49,8 +47,6 @@ class CollatedRound:
     fact_start_targets: torch.Tensor
     fact_token_write_targets: torch.Tensor
     fact_length_targets: list[list[tuple[int, int]]]
-    value_start_targets: torch.Tensor
-    value_length_targets: list[list[tuple[int, int]]]
     answer_target_mask: torch.Tensor
 
 
@@ -132,36 +128,6 @@ class SyntheticMemoryGenerator:
             )["input_ids"]
         )
 
-    def encode_fact_with_value(
-        self, text: str, value: str
-    ) -> tuple[tuple[int, ...], int, int]:
-        """Tokenize a fact and map its exact value characters to GPT-2 tokens."""
-
-        value_char_start = text.rindex(value)
-        value_char_end = value_char_start + len(value)
-        encoded = self.tokenizer(
-            text,
-            add_special_tokens=False,
-            return_attention_mask=False,
-            return_token_type_ids=False,
-            return_offsets_mapping=True,
-        )
-        offsets = encoded["offset_mapping"]
-        value_tokens = [
-            index
-            for index, (start, end) in enumerate(offsets)
-            if end > value_char_start and start < value_char_end
-        ]
-        if not value_tokens or value_tokens != list(
-            range(value_tokens[0], value_tokens[-1] + 1)
-        ):
-            raise RuntimeError(f"could not map a contiguous value span in {text!r}")
-        return (
-            tuple(encoded["input_ids"]),
-            value_tokens[0],
-            len(value_tokens),
-        )
-
     @property
     def delays(self) -> tuple[int, ...]:
         return self.delay_buckets
@@ -204,10 +170,7 @@ class SyntheticMemoryGenerator:
         name = self.NAMES[name_index]
         value = self.VALUES[value_index]
 
-        fact_text = self.fact_template.format(name=name, value=value)
-        fact_ids, value_start, value_length = self.encode_fact_with_value(
-            fact_text, value
-        )
+        fact_ids = self.encode(self.fact_template.format(name=name, value=value))
         query_ids = self.encode(self.query_template.format(name=name))
         ack_ids = self.encode(self.ack_template) + (self.eos_token_id,)
         answer_ids = self.encode(value) + (self.eos_token_id,)
@@ -220,8 +183,6 @@ class SyntheticMemoryGenerator:
             roles=self._roles(len(fact_ids), 1) + self._roles(len(ack_ids), 2),
             fact_starts=(0,),
             fact_lengths=(len(fact_ids),),
-            value_starts=(value_start,),
-            value_lengths=(value_length,),
         )
         # Round B is system-role distractor text.  It pushes A out of the
         # recent local cache without creating additional user facts.
@@ -267,10 +228,6 @@ class SyntheticMemoryGenerator:
                 batch, max_tokens, dtype=torch.bool, device=device
             )
             length_targets: list[list[tuple[int, int]]] = []
-            value_start_targets = torch.zeros(
-                batch, max_tokens, dtype=torch.bool, device=device
-            )
-            value_length_targets: list[list[tuple[int, int]]] = []
             answer_mask = torch.zeros(batch, max_tokens, dtype=torch.bool, device=device)
             for row, sample in enumerate(samples):
                 length = len(sample.input_ids)
@@ -289,13 +246,6 @@ class SyntheticMemoryGenerator:
                     token_write_targets[row, start:end] = True
                     row_lengths.append((start, span_length))
                 length_targets.append(row_lengths)
-                row_value_lengths: list[tuple[int, int]] = []
-                for start, span_length in zip(
-                    sample.value_starts, sample.value_lengths
-                ):
-                    value_start_targets[row, start] = True
-                    row_value_lengths.append((start, span_length))
-                value_length_targets.append(row_value_lengths)
                 # A logit at position i predicts input_ids[i+1]; select only
                 # positions whose target token is an assistant token.
                 for position in range(length - 1):
@@ -309,8 +259,6 @@ class SyntheticMemoryGenerator:
                     fact_start_targets=start_targets,
                     fact_token_write_targets=token_write_targets,
                     fact_length_targets=length_targets,
-                    value_start_targets=value_start_targets,
-                    value_length_targets=value_length_targets,
                     answer_target_mask=answer_mask,
                 )
             )

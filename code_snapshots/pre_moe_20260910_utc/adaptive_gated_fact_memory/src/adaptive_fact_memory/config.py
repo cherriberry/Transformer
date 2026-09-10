@@ -50,12 +50,6 @@ class FactMemoryConfig:
     pad_token_id: int = 0
     tie_word_embeddings: bool = True
 
-    # Optional sparse mixture-of-experts replacement for the FFN.  The
-    # default is one dense expert so all pre-MoE checkpoints and experiments
-    # retain their original behavior.
-    moe_experts: int = 1
-    moe_top_k: int = 1
-
     def __post_init__(self) -> None:
         if self.hidden_size % self.heads:
             raise ValueError("hidden_size must be divisible by heads")
@@ -81,10 +75,6 @@ class FactMemoryConfig:
             raise ValueError("merge_threshold must be in [-1, 1]")
         if self.assignment_temperature <= 0:
             raise ValueError("assignment_temperature must be positive")
-        if self.moe_experts <= 0:
-            raise ValueError("moe_experts must be positive")
-        if self.moe_top_k <= 0 or self.moe_top_k > self.moe_experts:
-            raise ValueError("moe_top_k must be in [1, moe_experts]")
 
     @property
     def head_dim(self) -> int:

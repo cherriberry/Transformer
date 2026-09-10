@@ -7,9 +7,6 @@ import torch
 from adaptive_fact_memory import AdaptiveFactMemoryLM, FactMemoryConfig, SourceRole
 from adaptive_fact_memory.memory import FactCandidates, FactMemoryController
 from adaptive_fact_memory.state import FactMemoryState
-from adaptive_gated_fact_memory.scripts.train_memory_stress import (
-    _mean_moe_expert_fractions,
-)
 
 
 def tiny_config(**overrides) -> FactMemoryConfig:
@@ -47,88 +44,6 @@ def force_writes(model: AdaptiveFactMemoryLM) -> None:
 class AdaptiveFactMemoryTests(unittest.TestCase):
     def setUp(self) -> None:
         torch.manual_seed(7)
-
-    def test_moe_routes_top_k_and_backpropagates(self) -> None:
-        config = tiny_config(moe_experts=4, moe_top_k=2)
-        model = AdaptiveFactMemoryLM(config, memory_policy="none").train()
-        token_ids = torch.randint(1, config.vocab_size, (2, 7))
-        mask = torch.tensor(
-            [[1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 0, 0, 0, 0]],
-            dtype=torch.bool,
-        )
-        logits = model.forward_tinystories(token_ids, attention_mask=mask)
-        moe_blocks = [block for block in model.blocks if block.moe is not None]
-        self.assertTrue(moe_blocks)
-        loss = logits.float().square().mean()
-        loss = loss + sum(block.last_moe_aux_loss for block in moe_blocks)
-        loss.backward()
-        for block in moe_blocks:
-            self.assertIsNotNone(block.moe.router.weight.grad)
-            self.assertGreater(float(block.moe.router.weight.grad.abs().sum()), 0.0)
-            self.assertTrue(torch.isfinite(block.moe.router.weight.grad).all())
-            self.assertGreater(float(block.moe.experts[0][0].weight.grad.abs().sum()), 0.0)
-            fractions = block.last_moe_diagnostics["expert_token_fraction"]
-            self.assertTrue(torch.isfinite(fractions).all())
-
-    def test_moe_padding_is_excluded_from_load_statistics(self) -> None:
-        config = tiny_config(
-            layers=1,
-            memory_fusion_layers=(),
-            moe_experts=4,
-            moe_top_k=2,
-        )
-        model = AdaptiveFactMemoryLM(config, memory_policy="none").eval()
-        token_ids = torch.randint(1, config.vocab_size, (2, 8))
-        mask = torch.tensor(
-            [[1, 1, 1, 1, 1, 1, 1, 1], [1, 0, 0, 0, 0, 0, 0, 0]],
-            dtype=torch.bool,
-        )
-        with torch.no_grad():
-            model.forward_tinystories(token_ids, attention_mask=mask)
-        diagnostics = model.blocks[0].last_moe_diagnostics
-        # 9 valid tokens and normalized top-2 dispatch: fractions sum to one,
-        # independent of the seven padding positions.
-        self.assertAlmostEqual(
-            float(diagnostics["expert_dispatch_fraction"].sum()), 1.0, places=5
-        )
-        self.assertTrue(
-            bool((diagnostics["expert_counts"] <= torch.tensor(9)).all())
-        )
-
-    def test_moe_experts_can_initialize_from_dense_ffn(self) -> None:
-        dense = AdaptiveFactMemoryLM(tiny_config(), memory_policy="none").eval()
-        moe_config = tiny_config(moe_experts=4, moe_top_k=2)
-        moe = AdaptiveFactMemoryLM(moe_config, memory_policy="none").eval()
-        for dense_block, moe_block in zip(dense.blocks, moe.blocks):
-            if moe_block.moe is None:
-                continue
-            with torch.no_grad():
-                moe_block.ffn_in.weight.copy_(dense_block.ffn_in.weight)
-                moe_block.ffn_out.weight.copy_(dense_block.ffn_out.weight)
-            moe_block.initialize_moe_from_dense()
-            for expert in moe_block.moe.experts:
-                torch.testing.assert_close(expert[0].weight, dense_block.ffn_in.weight)
-                torch.testing.assert_close(expert[2].weight, dense_block.ffn_out.weight)
-
-    def test_moe_diagnostics_average_over_rounds_and_layers(self) -> None:
-        fractions = [
-            torch.tensor([[0.1, 0.2, 0.3, 0.4], [0.2, 0.3, 0.4, 0.1]]),
-            torch.tensor([[0.3, 0.4, 0.1, 0.2], [0.4, 0.1, 0.2, 0.3]]),
-        ]
-        result = _mean_moe_expert_fractions(fractions)
-        torch.testing.assert_close(result, torch.full((4,), 0.25))
-
-    def test_memory_reader_aligns_mixed_query_and_key_dtypes(self) -> None:
-        config = tiny_config()
-        model = AdaptiveFactMemoryLM(config).eval()
-        state = model.initial_state(1, dtype=torch.bfloat16)
-        state.memory.keys[0, 0, 0] = 1.0
-        state.memory.active[0, 0] = 1.0
-        turn_query = torch.randn(1, config.hidden_size, dtype=torch.float32)
-        with torch.no_grad():
-            selection, _ = model.memory_reader(state.memory, turn_query)
-        self.assertEqual(selection.scores.dtype, torch.bfloat16)
-        self.assertTrue(torch.isfinite(selection.scores[selection.valid]).all())
 
     def test_chunked_attention_matches_one_shot(self) -> None:
         model = AdaptiveFactMemoryLM(tiny_config()).eval()

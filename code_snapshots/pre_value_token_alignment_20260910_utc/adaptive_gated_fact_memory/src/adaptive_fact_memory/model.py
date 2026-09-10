@@ -31,115 +31,6 @@ class AdaptiveFactMemoryOutput:
     supervision: dict[str, Tensor]
 
 
-class SparseMoE(nn.Module):
-    """Token-routed top-k mixture-of-experts feed-forward block.
-
-    The router selects ``top_k`` experts per token.  Expert computation is
-    performed only for routed tokens, while the auxiliary Switch-style loss
-    penalizes imbalanced probability mass and dispatch counts.  The module is
-    deliberately self-contained so it can replace only the decoder FFN and
-    leave the local KV and episodic memory paths unchanged.
-    """
-
-    def __init__(self, config: FactMemoryConfig):
-        super().__init__()
-        if config.moe_experts <= 1:
-            raise ValueError("SparseMoE requires moe_experts > 1")
-        self.experts = nn.ModuleList(
-            nn.Sequential(
-                nn.Linear(config.hidden_size, config.ffn_size, bias=False),
-                nn.GELU(),
-                nn.Linear(config.ffn_size, config.hidden_size, bias=False),
-            )
-            for _ in range(config.moe_experts)
-        )
-        self.router = nn.Linear(config.hidden_size, config.moe_experts, bias=True)
-        self.top_k = config.moe_top_k
-        self.expert_count = config.moe_experts
-        # Small random logits avoid deterministic tie-breaking to one expert
-        # while keeping the initial routing approximately uniform.
-        nn.init.normal_(self.router.weight, mean=0.0, std=0.01)
-        nn.init.zeros_(self.router.bias)
-
-    def forward(
-        self, hidden: Tensor, token_mask: Tensor | None = None
-    ) -> tuple[Tensor, Tensor, dict[str, Tensor]]:
-        """Route valid tokens through top-k experts.
-
-        Right-padded tokens are excluded from dispatch and load statistics so
-        padding does not look like expert utilization.
-        """
-        shape = hidden.shape
-        flat = hidden.reshape(-1, shape[-1])
-        if token_mask is None:
-            valid = torch.ones(flat.shape[0], device=hidden.device, dtype=torch.bool)
-        else:
-            if token_mask.shape != shape[:-1]:
-                raise ValueError("token_mask shape must match hidden without the feature dimension")
-            valid = token_mask.reshape(-1).to(device=hidden.device, dtype=torch.bool)
-        valid_indices = torch.nonzero(valid, as_tuple=False).squeeze(-1)
-        combined = torch.zeros_like(flat)
-        if valid_indices.numel() == 0:
-            zero = flat.sum() * 0.0
-            empty = torch.zeros(self.expert_count, device=hidden.device, dtype=hidden.dtype)
-            diagnostics = {
-                "expert_counts": empty,
-                "expert_token_fraction": empty,
-                "expert_dispatch_fraction": empty,
-                "routing_entropy": zero.detach(),
-            }
-            return combined.reshape(shape), zero.to(hidden.dtype), diagnostics
-
-        valid_hidden = flat.index_select(0, valid_indices)
-        router_logits = self.router(valid_hidden)
-        router_probs = torch.softmax(router_logits.float(), dim=-1).to(hidden.dtype)
-        top_values, top_indices = torch.topk(router_probs, k=self.top_k, dim=-1)
-        top_values = top_values / top_values.sum(dim=-1, keepdim=True).clamp_min(1.0e-9)
-
-        valid_combined = torch.zeros_like(valid_hidden)
-        dispatch = torch.zeros(
-            valid_hidden.shape[0], self.expert_count, device=flat.device, dtype=hidden.dtype
-        )
-        for expert_index, expert in enumerate(self.experts):
-            token_indices, choice_indices = torch.nonzero(
-                top_indices == expert_index, as_tuple=True
-            )
-            if token_indices.numel() == 0:
-                continue
-            expert_output = expert(valid_hidden.index_select(0, token_indices))
-            weights = top_values[token_indices, choice_indices].unsqueeze(-1)
-            valid_combined.index_add_(0, token_indices, expert_output * weights)
-            dispatch.index_add_(
-                0,
-                token_indices,
-                F.one_hot(
-                    torch.full_like(token_indices, expert_index),
-                    num_classes=self.expert_count,
-                ).to(dispatch.dtype) * weights,
-            )
-        combined.index_copy_(0, valid_indices, valid_combined)
-
-        importance = router_probs.float().mean(dim=0)
-        load = (top_indices[..., None] == torch.arange(
-            self.expert_count, device=hidden.device
-        )).any(dim=1).float().mean(dim=0)
-        # With top-k routing, E * sum(importance * load) is approximately k
-        # under perfectly balanced dispatch (approximately 2 for top-2).
-        load_balance = self.expert_count * torch.sum(importance * load)
-        dispatch_fraction = dispatch.float().mean(dim=0)
-        entropy = -(
-            router_probs.float().clamp_min(1.0e-9)
-            * router_probs.float().clamp_min(1.0e-9).log()
-        ).sum(dim=-1).mean()
-        diagnostics = {
-            "expert_counts": (dispatch > 0).sum(dim=0).detach(),
-            "expert_token_fraction": load.detach(),
-            "expert_dispatch_fraction": dispatch_fraction.detach(),
-            "routing_entropy": entropy.detach(),
-        }
-        return combined.reshape(shape), load_balance.to(hidden.dtype), diagnostics
-
-
 class DecoderBlock(nn.Module):
     def __init__(self, config: FactMemoryConfig, use_memory: bool):
         super().__init__()
@@ -148,15 +39,9 @@ class DecoderBlock(nn.Module):
         self.memory_norm = nn.LayerNorm(config.hidden_size) if use_memory else None
         self.memory_fusion = SharedMemoryFusion(config) if use_memory else None
         self.ffn_norm = nn.LayerNorm(config.hidden_size)
-        self.moe = SparseMoE(config) if config.moe_experts > 1 else None
-        # Keep the dense FFN modules even in MoE mode.  Besides making the
-        # parameter layout backwards compatible with pre-MoE checkpoints,
-        # these weights provide a sensible initialization for every expert.
         self.ffn_in = nn.Linear(config.hidden_size, config.ffn_size, bias=False)
         self.ffn_out = nn.Linear(config.ffn_size, config.hidden_size, bias=False)
         self.dropout = nn.Dropout(config.dropout)
-        self.last_moe_aux_loss: Tensor | None = None
-        self.last_moe_diagnostics: dict[str, Tensor] = {}
 
     def forward(
         self,
@@ -189,32 +74,9 @@ class DecoderBlock(nn.Module):
                 value_mode=memory_value_mode,
             )
             hidden = hidden + self.dropout(memory_residual)
-        ffn_input = self.ffn_norm(hidden)
-        if self.moe is None:
-            ffn = self.ffn_out(F.gelu(self.ffn_in(ffn_input)))
-            self.last_moe_aux_loss = hidden.sum() * 0.0
-            self.last_moe_diagnostics = {}
-        else:
-            ffn, self.last_moe_aux_loss, self.last_moe_diagnostics = self.moe(
-                ffn_input, token_mask
-            )
+        ffn = self.ffn_out(F.gelu(self.ffn_in(self.ffn_norm(hidden))))
         hidden = hidden + self.dropout(ffn) * token_mask[..., None]
         return hidden, new_cache, attention_diagnostics, memory_gate
-
-    def initialize_moe_from_dense(self) -> None:
-        """Copy the compatible dense FFN into all MoE experts."""
-
-        if self.moe is None:
-            return
-        with torch.no_grad():
-            for expert in self.moe.experts:
-                expert[0].weight.copy_(self.ffn_in.weight)
-                expert[2].weight.copy_(self.ffn_out.weight)
-        # The dense tensors are retained solely as checkpoint-compatible
-        # initialization references; they are not part of the active MoE
-        # computation and should not consume optimizer state.
-        self.ffn_in.requires_grad_(False)
-        self.ffn_out.requires_grad_(False)
 
 
 class AdaptiveFactMemoryLM(nn.Module):
@@ -241,7 +103,6 @@ class AdaptiveFactMemoryLM(nn.Module):
         memory_policy: str = "gated",
         fusion_gate_override: float | None = None,
         memory_value_mode: str = "combined",
-        value_token_alignment: bool = False,
     ):
         super().__init__()
         if memory_policy not in self.VALID_MEMORY_POLICIES:
@@ -252,18 +113,9 @@ class AdaptiveFactMemoryLM(nn.Module):
         self.config = config
         self.memory_policy = memory_policy
         self.fusion_gate_override = fusion_gate_override
-        if memory_value_mode not in {
-            "combined",
-            "semantic_lexical",
-            "lexical_only",
-            "payload_only",
-            "value_only",
-        }:
+        if memory_value_mode not in {"combined", "payload_only", "value_only"}:
             raise ValueError("invalid memory_value_mode")
         self.memory_value_mode = memory_value_mode
-        self.value_token_alignment = bool(value_token_alignment)
-        if memory_value_mode in {"semantic_lexical", "lexical_only"} and not self.value_token_alignment:
-            raise ValueError("lexical memory modes require value_token_alignment=True")
         self.token_embedding = nn.Embedding(config.vocab_size, config.hidden_size)
         self.rotary = RotaryEmbedding(config.head_dim, config.rope_max_position)
         fusion_layers = set(config.memory_fusion_layers)
@@ -272,54 +124,15 @@ class AdaptiveFactMemoryLM(nn.Module):
             for layer_index in range(config.layers)
         )
         self.final_norm = nn.LayerNorm(config.hidden_size)
-        self.fact_extractor = AtomicFactExtractor(
-            config, enable_value_spans=self.value_token_alignment
-        )
+        self.fact_extractor = AtomicFactExtractor(config)
         self.memory_controller = FactMemoryController(config)
         self.memory_reader = FactMemoryReader(config)
-        if self.value_token_alignment:
-            self.memory_token_projection = nn.Linear(
-                config.hidden_size, config.hidden_size, bias=False
-            )
-            self.memory_token_norm = nn.LayerNorm(config.hidden_size)
-            self.memory_token_positions = nn.Parameter(
-                torch.zeros(config.payload_tokens, config.hidden_size)
-            )
-        else:
-            self.memory_token_projection = None
-            self.memory_token_norm = None
-            self.register_parameter("memory_token_positions", None)
         self.lm_head = (
             None
             if config.tie_word_embeddings
             else nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         )
         self.reset_parameters()
-
-    def memory_to_token_logits(self, lexical_values: Tensor, token_count: int) -> Tensor:
-        """Decode a bounded answer-token sequence from lexical memory values.
-
-        This head is auxiliary only: autoregressive generation still uses the
-        ordinary LM head.  Position-specific states allow a one-token source
-        value (for example GPT-2's ``' navy'`` token) to supervise a multi-token
-        answer representation (``'nav'``, ``'y'``).
-        """
-
-        if (
-            not self.value_token_alignment
-            or self.memory_token_projection is None
-            or self.memory_token_norm is None
-            or self.memory_token_positions is None
-        ):
-            raise RuntimeError("memory-to-token alignment is disabled")
-        if token_count <= 0 or token_count > self.config.payload_tokens:
-            raise ValueError("token_count exceeds the configured payload budget")
-        positioned = (
-            lexical_values.unsqueeze(-2)
-            + self.memory_token_positions[:token_count]
-        )
-        hidden = self.memory_token_norm(self.memory_token_projection(positioned))
-        return F.linear(hidden, self.token_embedding.weight)
 
     def reset_parameters(self) -> None:
         """Initialize the TinyLM backbone with the protocol's small scale.
@@ -442,15 +255,8 @@ class AdaptiveFactMemoryLM(nn.Module):
         return MemorySelection(
             keys=choose(fresh.keys, cached.keys),
             values=choose(fresh.values, cached.values),
-            lexical_values=choose(fresh.lexical_values, cached.lexical_values),
             payload_ids=choose(fresh.payload_ids, cached.payload_ids),
             payload_mask=choose(fresh.payload_mask, cached.payload_mask),
-            value_payload_ids=choose(
-                fresh.value_payload_ids, cached.value_payload_ids
-            ),
-            value_payload_mask=choose(
-                fresh.value_payload_mask, cached.value_payload_mask
-            ),
             indices=choose(fresh.indices, cached.indices),
             valid=choose(fresh.valid, cached.valid),
             scores=choose(fresh.scores, cached.scores),
@@ -467,17 +273,8 @@ class AdaptiveFactMemoryLM(nn.Module):
         candidate_count = self.config.max_write_candidates
         keys = torch.cat((pending.keys, candidates.keys), dim=1)
         values = torch.cat((pending.values, candidates.values), dim=1)
-        lexical_values = torch.cat(
-            (pending.lexical_values, candidates.lexical_values), dim=1
-        )
         payload_ids = torch.cat((pending.payload_ids, candidates.payload_ids), dim=1)
         payload_mask = torch.cat((pending.payload_mask, candidates.payload_mask), dim=1)
-        value_payload_ids = torch.cat(
-            (pending.value_payload_ids, candidates.value_payload_ids), dim=1
-        )
-        value_payload_mask = torch.cat(
-            (pending.value_payload_mask, candidates.value_payload_mask), dim=1
-        )
         write_probability = torch.cat(
             (pending.write_probability, candidates.write_probability), dim=1
         )
@@ -495,11 +292,8 @@ class AdaptiveFactMemoryLM(nn.Module):
 
         selected_keys = gather(keys)
         selected_values = gather(values)
-        selected_lexical_values = gather(lexical_values)
         selected_payload_ids = gather(payload_ids)
         selected_payload_mask = gather(payload_mask)
-        selected_value_payload_ids = gather(value_payload_ids)
-        selected_value_payload_mask = gather(value_payload_mask)
         selected_probability = gather(write_probability)
         selected_confidence = gather(confidence)
         selected_valid = gather(valid)
@@ -512,11 +306,8 @@ class AdaptiveFactMemoryLM(nn.Module):
         updated = PendingRoundState(
             keys=selected_keys,
             values=selected_values,
-            lexical_values=selected_lexical_values,
             payload_ids=selected_payload_ids,
             payload_mask=selected_payload_mask,
-            value_payload_ids=selected_value_payload_ids,
-            value_payload_mask=selected_value_payload_mask,
             write_probability=selected_probability,
             confidence=selected_confidence,
             valid=selected_valid,
@@ -526,23 +317,16 @@ class AdaptiveFactMemoryLM(nn.Module):
         buffered_candidates = FactCandidates(
             keys=selected_keys,
             values=selected_values,
-            lexical_values=selected_lexical_values,
             payload_ids=selected_payload_ids,
             payload_mask=selected_payload_mask,
-            value_payload_ids=selected_value_payload_ids,
-            value_payload_mask=selected_value_payload_mask,
             starts=torch.zeros_like(candidates.starts),
             lengths=selected_payload_mask.sum(dim=-1),
-            value_starts=torch.zeros_like(candidates.value_starts),
-            value_lengths=selected_value_payload_mask.sum(dim=-1),
             write_probability=selected_probability,
             confidence=selected_confidence,
             valid=selected_valid,
             start_logits=candidates.start_logits,
             length_logits=candidates.length_logits,
             token_write_logits=candidates.token_write_logits,
-            value_start_logits=candidates.value_start_logits,
-            value_length_logits=candidates.value_length_logits,
         )
         return updated, buffered_candidates
 
@@ -612,10 +396,6 @@ class AdaptiveFactMemoryLM(nn.Module):
         new_caches = []
         layer_diagnostics: list[dict[str, Tensor]] = []
         gate_means: list[Tensor] = []
-        moe_losses: list[Tensor] = []
-        moe_counts: list[Tensor] = []
-        moe_fractions: list[Tensor] = []
-        moe_entropies: list[Tensor] = []
         for layer_index, (block, cache) in enumerate(zip(self.blocks, state.layer_caches)):
             hidden, new_cache, attention_diagnostics, memory_gate = block(
                 hidden,
@@ -633,12 +413,6 @@ class AdaptiveFactMemoryLM(nn.Module):
             )
             new_caches.append(new_cache)
             layer_diagnostics.append(attention_diagnostics)
-            if block.last_moe_aux_loss is not None:
-                moe_losses.append(block.last_moe_aux_loss)
-            if block.last_moe_diagnostics:
-                moe_counts.append(block.last_moe_diagnostics["expert_counts"])
-                moe_fractions.append(block.last_moe_diagnostics["expert_token_fraction"])
-                moe_entropies.append(block.last_moe_diagnostics["routing_entropy"])
             if memory_gate is not None:
                 visible_count = memory_visibility.sum().clamp_min(1)
                 gate_means.append(
@@ -682,23 +456,6 @@ class AdaptiveFactMemoryLM(nn.Module):
                     dtype=hidden.dtype,
                 ),
                 "memory_gate_means": torch.empty(0, device=input_ids.device),
-                "moe_aux_loss": torch.stack(moe_losses).mean()
-                if moe_losses
-                else zero,
-                "moe_expert_counts": torch.stack(moe_counts).detach()
-                if moe_counts
-                else torch.empty(0, device=input_ids.device),
-                "moe_expert_token_fraction": torch.stack(moe_fractions).detach()
-                if moe_fractions
-                else torch.empty(0, device=input_ids.device),
-                "moe_expert_dispatch_fraction": torch.stack(
-                    [block.last_moe_diagnostics["expert_dispatch_fraction"] for block in self.blocks]
-                ).detach()
-                if moe_fractions
-                else torch.empty(0, device=input_ids.device),
-                "moe_routing_entropy": torch.stack(moe_entropies).mean().detach()
-                if moe_entropies
-                else zero.detach(),
                 "active_slots": torch.zeros(
                     batch, device=input_ids.device, dtype=torch.long
                 ),
@@ -781,34 +538,13 @@ class AdaptiveFactMemoryLM(nn.Module):
             "write_probabilities": candidates.write_probability.detach(),
             "candidate_starts": candidates.starts.detach(),
             "candidate_lengths": candidates.lengths.detach(),
-            "candidate_value_starts": candidates.value_starts.detach(),
-            "candidate_value_lengths": candidates.value_lengths.detach(),
             "candidate_payload_ids": candidates.payload_ids.detach(),
             "candidate_payload_mask": candidates.payload_mask.detach(),
-            "candidate_value_payload_ids": candidates.value_payload_ids.detach(),
-            "candidate_value_payload_mask": candidates.value_payload_mask.detach(),
             "pending_fact_count": pending.valid.sum(dim=1).detach(),
             "pending_assistant_tokens": pending.assistant_count.detach(),
             "memory_gate_means": torch.stack(gate_means).detach()
             if gate_means
             else torch.empty(0, device=input_ids.device),
-            "moe_aux_loss": torch.stack(moe_losses).mean()
-            if moe_losses
-            else logits.sum() * 0.0,
-            "moe_expert_counts": torch.stack(moe_counts).detach()
-            if moe_counts
-            else torch.empty(0, device=input_ids.device),
-            "moe_expert_token_fraction": torch.stack(moe_fractions).detach()
-            if moe_fractions
-            else torch.empty(0, device=input_ids.device),
-            "moe_expert_dispatch_fraction": torch.stack(
-                [block.last_moe_diagnostics["expert_dispatch_fraction"] for block in self.blocks]
-            ).detach()
-            if moe_fractions
-            else torch.empty(0, device=input_ids.device),
-            "moe_routing_entropy": torch.stack(moe_entropies).mean().detach()
-            if moe_entropies
-            else logits.sum().detach() * 0.0,
             "layer_attention": layer_diagnostics,
             **write_diagnostics,
             **assistant_diagnostics,
@@ -818,26 +554,17 @@ class AdaptiveFactMemoryLM(nn.Module):
             # Minimize a negative coefficient during warm-up if gate collapse
             # to all-off is observed; it is exposed rather than silently added.
             "write_entropy": write_entropy,
-            "moe_load_balance": diagnostics["moe_aux_loss"],
         }
         supervision = {
             "fact_start_logits": candidates.start_logits,
             "fact_length_logits": candidates.length_logits,
             "fact_token_write_logits": candidates.token_write_logits,
-            "value_start_logits": candidates.value_start_logits,
-            "value_length_logits": candidates.value_length_logits,
             "candidate_keys": candidates.keys,
             "candidate_values": candidates.values,
-            "candidate_lexical_values": candidates.lexical_values,
             "candidate_starts": candidates.starts,
-            "candidate_value_starts": candidates.value_starts,
             "candidate_write_probability": candidates.write_probability,
             "candidate_confidence": candidates.confidence,
             "retention_probability": write_diagnostics["retention_scores"],
-            "fact_hidden": final_hidden,
-            "retrieved_lexical_values": selection.lexical_values,
-            "retrieved_indices": selection.indices,
-            "retrieved_valid": selection.valid,
         }
         return AdaptiveFactMemoryOutput(
             logits=logits,

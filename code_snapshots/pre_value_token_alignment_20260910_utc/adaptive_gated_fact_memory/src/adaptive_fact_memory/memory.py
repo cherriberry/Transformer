@@ -16,34 +16,24 @@ from .state import FactMemoryState
 class FactCandidates:
     keys: Tensor
     values: Tensor
-    lexical_values: Tensor
     payload_ids: Tensor
     payload_mask: Tensor
-    value_payload_ids: Tensor
-    value_payload_mask: Tensor
     starts: Tensor
     lengths: Tensor
-    value_starts: Tensor
-    value_lengths: Tensor
     write_probability: Tensor
     confidence: Tensor
     valid: Tensor
     start_logits: Tensor
     length_logits: Tensor
     token_write_logits: Tensor
-    value_start_logits: Tensor
-    value_length_logits: Tensor
 
 
 @dataclass
 class MemorySelection:
     keys: Tensor
     values: Tensor
-    lexical_values: Tensor
     payload_ids: Tensor
     payload_mask: Tensor
-    value_payload_ids: Tensor
-    value_payload_mask: Tensor
     indices: Tensor
     valid: Tensor
     scores: Tensor
@@ -58,71 +48,18 @@ class AtomicFactExtractor(nn.Module):
     external fact extractor.
     """
 
-    def __init__(self, config: FactMemoryConfig, *, enable_value_spans: bool = False):
+    def __init__(self, config: FactMemoryConfig):
         super().__init__()
         self.config = config
-        self.enable_value_spans = bool(enable_value_spans)
         self.start_head = nn.Linear(config.hidden_size, 1)
         self.length_head = nn.Linear(config.hidden_size, config.payload_tokens)
         self.key_projection = nn.Linear(config.hidden_size, config.hidden_size, bias=False)
         self.value_projection = nn.Linear(config.hidden_size, config.hidden_size, bias=False)
-        self.value_start_head = (
-            nn.Linear(config.hidden_size, 1) if self.enable_value_spans else None
-        )
-        self.value_length_head = (
-            nn.Linear(config.hidden_size, config.payload_tokens)
-            if self.enable_value_spans
-            else None
-        )
-        self.lexical_projection = (
-            nn.Linear(config.hidden_size, config.hidden_size, bias=False)
-            if self.enable_value_spans
-            else None
-        )
         self.write_head = nn.Linear(config.hidden_size, 1)
         self.confidence_head = nn.Linear(config.hidden_size, 1)
         # Sparse by default; auxiliary retrieval supervision must earn writes.
         nn.init.constant_(self.write_head.bias, -2.0)
         nn.init.constant_(self.confidence_head.bias, 0.0)
-
-    def encode_value_spans(
-        self,
-        hidden: Tensor,
-        input_ids: Tensor,
-        token_mask: Tensor,
-        source_roles: Tensor,
-        value_starts: Tensor,
-        value_lengths: Tensor,
-        valid: Tensor,
-    ) -> tuple[Tensor, Tensor, Tensor]:
-        """Encode labelled or predicted value spans without losing token IDs."""
-
-        if self.lexical_projection is None:
-            raise RuntimeError("value-span encoding is disabled")
-        batch, tokens, _ = hidden.shape
-        payload_length = self.config.payload_tokens
-        offsets = torch.arange(payload_length, device=hidden.device).view(1, 1, -1)
-        raw_indices = value_starts[..., None] + offsets
-        safe_indices = raw_indices.clamp(max=max(0, tokens - 1))
-        batch_indices = torch.arange(batch, device=hidden.device).view(batch, 1, 1)
-        value_hidden = hidden[batch_indices, safe_indices]
-        value_ids = input_ids[batch_indices, safe_indices]
-        value_token_valid = token_mask[batch_indices, safe_indices]
-        value_roles = source_roles[batch_indices, safe_indices]
-        value_mask = (
-            valid[..., None]
-            & (raw_indices < tokens)
-            & (offsets < value_lengths[..., None])
-            & value_token_valid
-            & (value_roles == int(SourceRole.USER))
-        )
-        value_ids = torch.where(value_mask, value_ids, self.config.pad_token_id)
-        denominator = value_mask.sum(dim=-1, keepdim=True).clamp_min(1).to(hidden.dtype)
-        lexical_values = (
-            value_hidden * value_mask[..., None].to(hidden.dtype)
-        ).sum(dim=2) / denominator
-        lexical_values = self.lexical_projection(lexical_values) * valid[..., None]
-        return lexical_values, value_ids, value_mask
 
     def forward(
         self,
@@ -177,49 +114,6 @@ class AtomicFactExtractor(nn.Module):
 
         keys = F.normalize(self.key_projection(span_representation), dim=-1, eps=1e-6)
         values = self.value_projection(span_representation)
-        if self.enable_value_spans:
-            if self.value_start_head is None or self.value_length_head is None:
-                raise RuntimeError("value-span heads were not initialized")
-            value_start_logits = self.value_start_head(hidden).squeeze(-1)
-            value_length_logits = self.value_length_head(hidden)
-            token_indices = torch.arange(tokens, device=hidden.device).view(1, 1, -1)
-            inside_fact = (
-                (token_indices >= starts[..., None])
-                & (token_indices < starts[..., None] + lengths[..., None])
-                & allowed[:, None, :]
-                & selected_valid[..., None]
-            )
-            candidate_value_scores = value_start_logits[:, None, :].masked_fill(
-                ~inside_fact, -torch.inf
-            )
-            value_scores, value_starts = candidate_value_scores.max(dim=-1)
-            value_valid = selected_valid & torch.isfinite(value_scores)
-            value_gather = value_starts[..., None].expand(-1, -1, payload_length)
-            selected_value_length_logits = torch.gather(
-                value_length_logits, 1, value_gather
-            )
-            value_lengths = selected_value_length_logits.argmax(dim=-1) + 1
-            remaining = (starts + lengths - value_starts).clamp_min(1)
-            value_lengths = torch.minimum(value_lengths, remaining)
-            lexical_values, value_payload_ids, value_payload_mask = (
-                self.encode_value_spans(
-                    hidden,
-                    input_ids,
-                    token_mask,
-                    source_roles,
-                    value_starts,
-                    value_lengths,
-                    value_valid,
-                )
-            )
-        else:
-            value_start_logits = start_logits
-            value_length_logits = length_logits
-            value_starts = starts
-            value_lengths = lengths
-            lexical_values = values
-            value_payload_ids = payload_ids
-            value_payload_mask = payload_mask
         write_probability = torch.sigmoid(self.write_head(span_representation).squeeze(-1))
         write_probability = write_probability * selected_valid
         confidence = torch.sigmoid(self.confidence_head(span_representation).squeeze(-1))
@@ -227,23 +121,16 @@ class AtomicFactExtractor(nn.Module):
         return FactCandidates(
             keys=keys,
             values=values,
-            lexical_values=lexical_values,
             payload_ids=payload_ids,
             payload_mask=payload_mask,
-            value_payload_ids=value_payload_ids,
-            value_payload_mask=value_payload_mask,
             starts=starts,
             lengths=lengths,
-            value_starts=value_starts,
-            value_lengths=value_lengths,
             write_probability=write_probability,
             confidence=confidence,
             valid=selected_valid,
             start_logits=start_logits,
             length_logits=length_logits,
             token_write_logits=token_write_logits,
-            value_start_logits=value_start_logits,
-            value_length_logits=value_length_logits,
         )
 
 
@@ -376,7 +263,6 @@ class FactMemoryController(nn.Module):
         for candidate_index in range(candidate_count):
             candidate_key = candidates.keys[:, candidate_index]
             candidate_value = candidates.values[:, candidate_index]
-            candidate_lexical_value = candidates.lexical_values[:, candidate_index]
             probability = candidates.write_probability[:, candidate_index]
             candidate_valid = candidates.valid[:, candidate_index] & commit_mask
             write_strength = (
@@ -436,10 +322,6 @@ class FactMemoryController(nn.Module):
                 state.values * (1.0 - alpha[..., None])
                 + candidate_value[:, None, :] * alpha[..., None]
             )
-            lexical_values = (
-                state.lexical_values * (1.0 - alpha[..., None])
-                + candidate_lexical_value[:, None, :] * alpha[..., None]
-            )
             activation_alpha = write_strength[:, None] * assignment
             active = state.active + activation_alpha * (1.0 - state.active)
             confidence = (
@@ -449,8 +331,6 @@ class FactMemoryController(nn.Module):
 
             payload_ids = state.payload_ids.clone()
             payload_mask = state.payload_mask.clone()
-            value_payload_ids = state.value_payload_ids.clone()
-            value_payload_mask = state.value_payload_mask.clone()
             source_role = state.source_role.clone()
             last_access = state.last_access.clone()
             conflict = state.conflict.clone()
@@ -481,12 +361,6 @@ class FactMemoryController(nn.Module):
                     conflict[batch_index, slot] |= different
                 payload_ids[batch_index, slot] = candidates.payload_ids[batch_index, candidate_index]
                 payload_mask[batch_index, slot] = candidates.payload_mask[batch_index, candidate_index]
-                value_payload_ids[batch_index, slot] = candidates.value_payload_ids[
-                    batch_index, candidate_index
-                ]
-                value_payload_mask[batch_index, slot] = candidates.value_payload_mask[
-                    batch_index, candidate_index
-                ]
                 source_role[batch_index, slot] = int(SourceRole.USER)
                 last_access[batch_index, slot] = state.turn_index[batch_index]
                 new_age[batch_index, slot] = 0
@@ -495,12 +369,9 @@ class FactMemoryController(nn.Module):
                 state,
                 keys=keys,
                 values=values,
-                lexical_values=lexical_values,
                 active=active,
                 payload_ids=payload_ids,
                 payload_mask=payload_mask,
-                value_payload_ids=value_payload_ids,
-                value_payload_mask=value_payload_mask,
                 age=new_age,
                 last_access=last_access,
                 confidence=confidence,
@@ -604,67 +475,28 @@ class FactMemoryReader(nn.Module):
         assistant_payload_mask = torch.zeros_like(assistant_payload_ids, dtype=torch.bool)
         keys = torch.cat((state.keys, state.assistant_keys), dim=1)
         values = torch.cat((state.values, state.assistant_values), dim=1)
-        lexical_values = torch.cat(
-            (state.lexical_values, torch.zeros_like(state.assistant_values)), dim=1
-        )
         active = torch.cat((state.active, state.assistant_active), dim=1)
         payload_ids = torch.cat((state.payload_ids, assistant_payload_ids), dim=1)
         payload_mask = torch.cat((state.payload_mask, assistant_payload_mask), dim=1)
-        value_payload_ids = torch.cat(
-            (state.value_payload_ids, assistant_payload_ids), dim=1
-        )
-        value_payload_mask = torch.cat(
-            (state.value_payload_mask, assistant_payload_mask), dim=1
-        )
-        return (
-            keys,
-            values,
-            lexical_values,
-            active,
-            payload_ids,
-            payload_mask,
-            value_payload_ids,
-            value_payload_mask,
-        )
+        return keys, values, active, payload_ids, payload_mask
 
     def from_indices(
         self, state: FactMemoryState, indices: Tensor, valid: Tensor
     ) -> MemorySelection:
-        (
-            keys,
-            values,
-            lexical_values,
-            _,
-            payload_ids,
-            payload_mask,
-            value_payload_ids,
-            value_payload_mask,
-        ) = self._combined(state)
+        keys, values, _, payload_ids, payload_mask = self._combined(state)
         safe_indices = indices[..., None].expand(-1, -1, self.config.hidden_size)
         selected_keys = torch.gather(keys, 1, safe_indices) * valid[..., None]
         selected_values = torch.gather(values, 1, safe_indices) * valid[..., None]
-        selected_lexical_values = (
-            torch.gather(lexical_values, 1, safe_indices) * valid[..., None]
-        )
         payload_indices = indices[..., None].expand(-1, -1, self.config.payload_tokens)
         selected_payload_ids = torch.gather(payload_ids, 1, payload_indices)
         selected_payload_mask = torch.gather(payload_mask, 1, payload_indices) & valid[..., None]
-        selected_value_payload_ids = torch.gather(
-            value_payload_ids, 1, payload_indices
-        )
-        selected_value_payload_mask = (
-            torch.gather(value_payload_mask, 1, payload_indices) & valid[..., None]
-        )
         scores = torch.zeros(indices.shape, device=keys.device, dtype=keys.dtype)
         scores = scores.masked_fill(~valid, -torch.inf)
         return MemorySelection(
             keys=selected_keys,
             values=selected_values,
-            lexical_values=selected_lexical_values,
             payload_ids=selected_payload_ids,
             payload_mask=selected_payload_mask,
-            value_payload_ids=selected_value_payload_ids,
-            value_payload_mask=selected_value_payload_mask,
             indices=indices,
             valid=valid,
             scores=scores,
@@ -677,22 +509,10 @@ class FactMemoryReader(nn.Module):
         *,
         update_mask: Tensor | None = None,
     ) -> tuple[MemorySelection, FactMemoryState]:
-        (
-            keys,
-            values,
-            lexical_values,
-            active,
-            payload_ids,
-            payload_mask,
-            value_payload_ids,
-            value_payload_mask,
-        ) = self._combined(state)
+        keys, values, active, payload_ids, payload_mask = self._combined(state)
 
-        normalized_keys = F.normalize(keys, dim=-1, eps=1e-6)
-        query = F.normalize(self.query_projection(turn_query), dim=-1, eps=1e-6).to(
-            normalized_keys.dtype
-        )
-        scores = torch.einsum("bd,bmd->bm", query, normalized_keys)
+        query = F.normalize(self.query_projection(turn_query), dim=-1, eps=1e-6)
+        scores = torch.einsum("bd,bmd->bm", query, F.normalize(keys, dim=-1, eps=1e-6))
         active_mask = active > self.config.active_threshold
         scores = scores.masked_fill(~active_mask, -torch.inf)
         top_scores, indices = torch.topk(scores, k=self.config.memory_read_top_k, dim=-1)
@@ -700,21 +520,12 @@ class FactMemoryReader(nn.Module):
         safe_indices = indices[..., None].expand(-1, -1, self.config.hidden_size)
         selected_keys = torch.gather(keys, 1, safe_indices)
         selected_values = torch.gather(values, 1, safe_indices)
-        selected_lexical_values = torch.gather(lexical_values, 1, safe_indices)
         payload_indices = indices[..., None].expand(-1, -1, self.config.payload_tokens)
         selected_payload_ids = torch.gather(payload_ids, 1, payload_indices)
         selected_payload_mask = torch.gather(payload_mask, 1, payload_indices)
-        selected_value_payload_ids = torch.gather(
-            value_payload_ids, 1, payload_indices
-        )
-        selected_value_payload_mask = torch.gather(
-            value_payload_mask, 1, payload_indices
-        )
         selected_keys = selected_keys * valid[..., None]
         selected_values = selected_values * valid[..., None]
-        selected_lexical_values = selected_lexical_values * valid[..., None]
         selected_payload_mask = selected_payload_mask & valid[..., None]
-        selected_value_payload_mask = selected_value_payload_mask & valid[..., None]
 
         access_count = state.access_count.clone()
         last_access = state.last_access.clone()
@@ -733,11 +544,8 @@ class FactMemoryReader(nn.Module):
         return MemorySelection(
             keys=selected_keys,
             values=selected_values,
-            lexical_values=selected_lexical_values,
             payload_ids=selected_payload_ids,
             payload_mask=selected_payload_mask,
-            value_payload_ids=selected_value_payload_ids,
-            value_payload_mask=selected_value_payload_mask,
             indices=indices,
             valid=valid,
             scores=top_scores,
@@ -775,21 +583,13 @@ class SharedMemoryFusion(nn.Module):
         ).sum(dim=2) / payload_denominator.to(payload_embeddings.dtype)
         if value_mode == "combined":
             memory_values = selection.values + payload_summary
-        elif value_mode == "semantic_lexical":
-            # Keep the relation-level semantic value while replacing the
-            # whole-sentence payload average with the separately extracted
-            # value/object representation.
-            memory_values = selection.values + selection.lexical_values
-        elif value_mode == "lexical_only":
-            memory_values = selection.lexical_values
         elif value_mode == "payload_only":
             memory_values = payload_summary
         elif value_mode == "value_only":
             memory_values = selection.values
         else:
             raise ValueError(
-                "value_mode must be one of {'combined', 'semantic_lexical', "
-                "'lexical_only', 'payload_only', 'value_only'}"
+                "value_mode must be one of {'combined', 'payload_only', 'value_only'}"
             )
         query = self.to_q(hidden)
         key = self.to_k(selection.keys)

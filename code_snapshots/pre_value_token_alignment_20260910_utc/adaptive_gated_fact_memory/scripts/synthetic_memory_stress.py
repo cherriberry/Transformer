@@ -128,32 +128,6 @@ class SelectiveMemoryStressGenerator:
             )["input_ids"]
         )
 
-    def encode_fact_with_value(
-        self, text: str, value: str
-    ) -> tuple[tuple[int, ...], int, int]:
-        """Tokenize a fact and map the exact value characters to token indices."""
-
-        value_char_start = text.rindex(value)
-        value_char_end = value_char_start + len(value)
-        encoded = self.tokenizer(
-            text,
-            add_special_tokens=False,
-            return_attention_mask=False,
-            return_token_type_ids=False,
-            return_offsets_mapping=True,
-        )
-        offsets = encoded["offset_mapping"]
-        value_tokens = [
-            index
-            for index, (start, end) in enumerate(offsets)
-            if end > value_char_start and start < value_char_end
-        ]
-        if not value_tokens or value_tokens != list(
-            range(value_tokens[0], value_tokens[-1] + 1)
-        ):
-            raise RuntimeError(f"could not map a contiguous value span in {text!r}")
-        return tuple(encoded["input_ids"]), value_tokens[0], len(value_tokens)
-
     @staticmethod
     def _roles(count: int, role: int) -> tuple[int, ...]:
         return tuple([int(role)] * count)
@@ -208,10 +182,7 @@ class SelectiveMemoryStressGenerator:
         durable_template = durable_templates[
             self._choice(index, len(durable_templates), 127)
         ]
-        durable_text = durable_template.format(name=name, value=value)
-        durable_ids, value_start, value_length = self.encode_fact_with_value(
-            durable_text, value
-        )
+        durable_ids = self.encode(durable_template.format(name=name, value=value))
 
         rounds: list[MemoryRound] = [
             MemoryRound(
@@ -219,8 +190,6 @@ class SelectiveMemoryStressGenerator:
                 roles=self._roles(len(durable_ids), 1),
                 fact_starts=(0,),
                 fact_lengths=(len(durable_ids),),
-                value_starts=(value_start,),
-                value_lengths=(value_length,),
             )
         ]
         kinds = ["durable"]
@@ -319,8 +288,6 @@ class SelectiveMemoryStressGenerator:
             fact_token_write_targets = torch.zeros_like(attention_mask)
             answer_target_mask = torch.zeros_like(attention_mask)
             fact_length_targets: list[list[tuple[int, int]]] = []
-            value_start_targets = torch.zeros_like(attention_mask)
-            value_length_targets: list[list[tuple[int, int]]] = []
             for row, sample in enumerate(samples):
                 length = len(sample.input_ids)
                 input_ids[row, :length] = torch.tensor(sample.input_ids, device=device)
@@ -333,13 +300,6 @@ class SelectiveMemoryStressGenerator:
                     fact_token_write_targets[row, start:end] = True
                     row_lengths.append((start, span_length))
                 fact_length_targets.append(row_lengths)
-                row_value_lengths: list[tuple[int, int]] = []
-                for start, span_length in zip(
-                    sample.value_starts, sample.value_lengths
-                ):
-                    value_start_targets[row, start] = True
-                    row_value_lengths.append((start, span_length))
-                value_length_targets.append(row_value_lengths)
                 for position in range(length - 1):
                     if sample.roles[position + 1] == 2:
                         answer_target_mask[row, position] = True
@@ -351,8 +311,6 @@ class SelectiveMemoryStressGenerator:
                     fact_start_targets=fact_start_targets,
                     fact_token_write_targets=fact_token_write_targets,
                     fact_length_targets=fact_length_targets,
-                    value_start_targets=value_start_targets,
-                    value_length_targets=value_length_targets,
                     answer_target_mask=answer_target_mask,
                 )
             )

@@ -7,9 +7,6 @@ import torch
 from adaptive_fact_memory import AdaptiveFactMemoryLM, FactMemoryConfig, SourceRole
 from adaptive_fact_memory.memory import FactCandidates, FactMemoryController
 from adaptive_fact_memory.state import FactMemoryState
-from adaptive_gated_fact_memory.scripts.train_memory_stress import (
-    _mean_moe_expert_fractions,
-)
 
 
 def tiny_config(**overrides) -> FactMemoryConfig:
@@ -47,88 +44,6 @@ def force_writes(model: AdaptiveFactMemoryLM) -> None:
 class AdaptiveFactMemoryTests(unittest.TestCase):
     def setUp(self) -> None:
         torch.manual_seed(7)
-
-    def test_moe_routes_top_k_and_backpropagates(self) -> None:
-        config = tiny_config(moe_experts=4, moe_top_k=2)
-        model = AdaptiveFactMemoryLM(config, memory_policy="none").train()
-        token_ids = torch.randint(1, config.vocab_size, (2, 7))
-        mask = torch.tensor(
-            [[1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 0, 0, 0, 0]],
-            dtype=torch.bool,
-        )
-        logits = model.forward_tinystories(token_ids, attention_mask=mask)
-        moe_blocks = [block for block in model.blocks if block.moe is not None]
-        self.assertTrue(moe_blocks)
-        loss = logits.float().square().mean()
-        loss = loss + sum(block.last_moe_aux_loss for block in moe_blocks)
-        loss.backward()
-        for block in moe_blocks:
-            self.assertIsNotNone(block.moe.router.weight.grad)
-            self.assertGreater(float(block.moe.router.weight.grad.abs().sum()), 0.0)
-            self.assertTrue(torch.isfinite(block.moe.router.weight.grad).all())
-            self.assertGreater(float(block.moe.experts[0][0].weight.grad.abs().sum()), 0.0)
-            fractions = block.last_moe_diagnostics["expert_token_fraction"]
-            self.assertTrue(torch.isfinite(fractions).all())
-
-    def test_moe_padding_is_excluded_from_load_statistics(self) -> None:
-        config = tiny_config(
-            layers=1,
-            memory_fusion_layers=(),
-            moe_experts=4,
-            moe_top_k=2,
-        )
-        model = AdaptiveFactMemoryLM(config, memory_policy="none").eval()
-        token_ids = torch.randint(1, config.vocab_size, (2, 8))
-        mask = torch.tensor(
-            [[1, 1, 1, 1, 1, 1, 1, 1], [1, 0, 0, 0, 0, 0, 0, 0]],
-            dtype=torch.bool,
-        )
-        with torch.no_grad():
-            model.forward_tinystories(token_ids, attention_mask=mask)
-        diagnostics = model.blocks[0].last_moe_diagnostics
-        # 9 valid tokens and normalized top-2 dispatch: fractions sum to one,
-        # independent of the seven padding positions.
-        self.assertAlmostEqual(
-            float(diagnostics["expert_dispatch_fraction"].sum()), 1.0, places=5
-        )
-        self.assertTrue(
-            bool((diagnostics["expert_counts"] <= torch.tensor(9)).all())
-        )
-
-    def test_moe_experts_can_initialize_from_dense_ffn(self) -> None:
-        dense = AdaptiveFactMemoryLM(tiny_config(), memory_policy="none").eval()
-        moe_config = tiny_config(moe_experts=4, moe_top_k=2)
-        moe = AdaptiveFactMemoryLM(moe_config, memory_policy="none").eval()
-        for dense_block, moe_block in zip(dense.blocks, moe.blocks):
-            if moe_block.moe is None:
-                continue
-            with torch.no_grad():
-                moe_block.ffn_in.weight.copy_(dense_block.ffn_in.weight)
-                moe_block.ffn_out.weight.copy_(dense_block.ffn_out.weight)
-            moe_block.initialize_moe_from_dense()
-            for expert in moe_block.moe.experts:
-                torch.testing.assert_close(expert[0].weight, dense_block.ffn_in.weight)
-                torch.testing.assert_close(expert[2].weight, dense_block.ffn_out.weight)
-
-    def test_moe_diagnostics_average_over_rounds_and_layers(self) -> None:
-        fractions = [
-            torch.tensor([[0.1, 0.2, 0.3, 0.4], [0.2, 0.3, 0.4, 0.1]]),
-            torch.tensor([[0.3, 0.4, 0.1, 0.2], [0.4, 0.1, 0.2, 0.3]]),
-        ]
-        result = _mean_moe_expert_fractions(fractions)
-        torch.testing.assert_close(result, torch.full((4,), 0.25))
-
-    def test_memory_reader_aligns_mixed_query_and_key_dtypes(self) -> None:
-        config = tiny_config()
-        model = AdaptiveFactMemoryLM(config).eval()
-        state = model.initial_state(1, dtype=torch.bfloat16)
-        state.memory.keys[0, 0, 0] = 1.0
-        state.memory.active[0, 0] = 1.0
-        turn_query = torch.randn(1, config.hidden_size, dtype=torch.float32)
-        with torch.no_grad():
-            selection, _ = model.memory_reader(state.memory, turn_query)
-        self.assertEqual(selection.scores.dtype, torch.bfloat16)
-        self.assertTrue(torch.isfinite(selection.scores[selection.valid]).all())
 
     def test_chunked_attention_matches_one_shot(self) -> None:
         model = AdaptiveFactMemoryLM(tiny_config()).eval()
@@ -205,19 +120,11 @@ class AdaptiveFactMemoryTests(unittest.TestCase):
             state = model.forward_round(token_ids, source_roles=roles, commit=True).state
         reordered = state.index_select(torch.tensor([1, 0]))
         torch.testing.assert_close(reordered.memory.keys[0], state.memory.keys[1])
-        torch.testing.assert_close(
-            reordered.memory.lexical_values[0], state.memory.lexical_values[1]
-        )
-        torch.testing.assert_close(
-            reordered.memory.value_payload_ids[0], state.memory.value_payload_ids[1]
-        )
         torch.testing.assert_close(reordered.layer_caches[0].recent_k[1], state.layer_caches[0].recent_k[0])
 
         reset = state.reset(torch.tensor([True, False]))
         self.assertEqual(float(reset.memory.active[0].sum()), 0.0)
         self.assertGreater(float(reset.memory.active[1].sum()), 0.0)
-        self.assertEqual(float(reset.memory.lexical_values[0].abs().sum()), 0.0)
-        self.assertFalse(bool(reset.memory.value_payload_mask[0].any()))
         self.assertEqual(int(reset.next_position[0]), 0)
         self.assertEqual(int(reset.next_position[1]), 6)
         self.assertFalse(bool(reset.layer_caches[0].sink_valid[0].any()))
@@ -402,23 +309,16 @@ class AdaptiveFactMemoryTests(unittest.TestCase):
             candidate = FactCandidates(
                 keys=candidate_key,
                 values=torch.ones(1, 1, config.hidden_size),
-                lexical_values=torch.full((1, 1, config.hidden_size), 2.0),
                 payload_ids=torch.tensor([[[42, 0, 0, 0]]]),
                 payload_mask=torch.tensor([[[True, False, False, False]]]),
-                value_payload_ids=torch.tensor([[[43, 0, 0, 0]]]),
-                value_payload_mask=torch.tensor([[[True, False, False, False]]]),
                 starts=torch.zeros(1, 1, dtype=torch.long),
                 lengths=torch.ones(1, 1, dtype=torch.long),
-                value_starts=torch.zeros(1, 1, dtype=torch.long),
-                value_lengths=torch.ones(1, 1, dtype=torch.long),
                 write_probability=torch.ones(1, 1),
                 confidence=torch.ones(1, 1),
                 valid=torch.ones(1, 1, dtype=torch.bool),
                 start_logits=torch.zeros(1, 1),
                 length_logits=torch.zeros(1, 1, config.payload_tokens),
                 token_write_logits=torch.zeros(1, 1),
-                value_start_logits=torch.zeros(1, 1),
-                value_length_logits=torch.zeros(1, 1, config.payload_tokens),
             )
             updated, diagnostics = controller.commit_facts(
                 state,
@@ -430,72 +330,6 @@ class AdaptiveFactMemoryTests(unittest.TestCase):
             )
         self.assertEqual(int(diagnostics["write_targets"][0, 0]), 0)
         self.assertEqual(int(updated.payload_ids[0, 0, 0]), 42)
-        self.assertEqual(int(updated.value_payload_ids[0, 0, 0]), 43)
-        self.assertEqual(float(updated.lexical_values[0, 0, 0]), 2.0)
-
-    def test_value_span_excludes_padding_and_preserves_token_ids(self) -> None:
-        config = tiny_config(max_write_candidates=1)
-        model = AdaptiveFactMemoryLM(config, value_token_alignment=True).eval()
-        extractor = model.fact_extractor
-        hidden = torch.zeros(1, 5, config.hidden_size)
-        hidden[0, 0, 0] = 5.0
-        hidden[0, 2, 1] = 7.0
-        input_ids = torch.tensor([[11, 12, 13, 14, 95]])
-        token_mask = torch.tensor([[True, True, True, True, False]])
-        roles = torch.full_like(input_ids, int(SourceRole.USER))
-        with torch.no_grad():
-            extractor.start_head.weight.zero_()
-            extractor.start_head.weight[0, 0] = 1.0
-            extractor.start_head.bias.zero_()
-            extractor.length_head.weight.zero_()
-            extractor.length_head.bias.zero_()
-            extractor.length_head.bias[3] = 10.0
-            extractor.value_start_head.weight.zero_()
-            extractor.value_start_head.weight[0, 1] = 1.0
-            extractor.value_start_head.bias.zero_()
-            extractor.value_length_head.weight.zero_()
-            extractor.value_length_head.bias.zero_()
-            extractor.value_length_head.bias[1] = 10.0
-            candidates = extractor(hidden, input_ids, token_mask, roles)
-        self.assertEqual(int(candidates.starts[0, 0]), 0)
-        self.assertEqual(int(candidates.lengths[0, 0]), 4)
-        self.assertEqual(int(candidates.value_starts[0, 0]), 2)
-        self.assertEqual(int(candidates.value_lengths[0, 0]), 2)
-        self.assertEqual(candidates.value_payload_ids[0, 0, :2].tolist(), [13, 14])
-        self.assertEqual(candidates.value_payload_mask[0, 0].tolist(), [True, True, False, False])
-        self.assertNotIn(95, candidates.value_payload_ids[0, 0].tolist())
-
-    def test_memory_token_loss_reaches_value_encoder(self) -> None:
-        config = tiny_config(max_write_candidates=1)
-        model = AdaptiveFactMemoryLM(config, value_token_alignment=True).train()
-        token_ids = torch.tensor([[11, 12, 13, 14]])
-        roles = torch.full_like(token_ids, int(SourceRole.USER))
-        output = model.forward_round(token_ids, source_roles=roles)
-        logits = model.memory_to_token_logits(
-            output.supervision["candidate_lexical_values"][:, 0], 2
-        )
-        targets = torch.tensor([[21, 22]])
-        torch.nn.functional.cross_entropy(
-            logits.reshape(-1, config.vocab_size), targets.reshape(-1)
-        ).backward()
-        self.assertIsNotNone(model.fact_extractor.lexical_projection.weight.grad)
-        self.assertGreater(
-            float(model.fact_extractor.lexical_projection.weight.grad.abs().sum()), 0.0
-        )
-        self.assertIsNotNone(model.memory_token_projection.weight.grad)
-
-    def test_default_model_keeps_legacy_value_path(self) -> None:
-        model = AdaptiveFactMemoryLM(tiny_config(max_write_candidates=1)).eval()
-        self.assertFalse(model.value_token_alignment)
-        self.assertIsNone(model.fact_extractor.value_start_head)
-        token_ids = torch.tensor([[11, 12, 13, 14]])
-        roles = torch.full_like(token_ids, int(SourceRole.USER))
-        with torch.no_grad():
-            output = model.forward_round(token_ids, source_roles=roles)
-        torch.testing.assert_close(
-            output.diagnostics["candidate_value_payload_ids"],
-            output.diagnostics["candidate_payload_ids"],
-        )
 
     def test_tinystories_stage_trains_backbone_only(self) -> None:
         model = AdaptiveFactMemoryLM(tiny_config()).train()

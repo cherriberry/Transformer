@@ -77,12 +77,9 @@ class FactMemoryState:
 
     keys: Tensor
     values: Tensor
-    lexical_values: Tensor
     active: Tensor
     payload_ids: Tensor
     payload_mask: Tensor
-    value_payload_ids: Tensor
-    value_payload_mask: Tensor
     age: Tensor
     last_access: Tensor
     access_count: Tensor
@@ -109,21 +106,9 @@ class FactMemoryState:
         return cls(
             keys=torch.zeros(*slot_shape, config.hidden_size, device=device, dtype=dtype),
             values=torch.zeros(*slot_shape, config.hidden_size, device=device, dtype=dtype),
-            lexical_values=torch.zeros(
-                *slot_shape, config.hidden_size, device=device, dtype=dtype
-            ),
             active=torch.zeros(slot_shape, device=device, dtype=dtype),
             payload_ids=torch.full((*slot_shape, config.payload_tokens), config.pad_token_id, device=device, dtype=torch.long),
             payload_mask=torch.zeros(*slot_shape, config.payload_tokens, device=device, dtype=torch.bool),
-            value_payload_ids=torch.full(
-                (*slot_shape, config.payload_tokens),
-                config.pad_token_id,
-                device=device,
-                dtype=torch.long,
-            ),
-            value_payload_mask=torch.zeros(
-                *slot_shape, config.payload_tokens, device=device, dtype=torch.bool
-            ),
             age=torch.zeros(slot_shape, device=device, dtype=torch.long),
             last_access=torch.full(slot_shape, -1, device=device, dtype=torch.long),
             access_count=torch.zeros(slot_shape, device=device, dtype=torch.long),
@@ -153,12 +138,9 @@ class FactMemoryState:
         return FactMemoryState(
             keys=self.keys * keep_value,
             values=self.values * keep_value,
-            lexical_values=self.lexical_values * keep_value,
             active=self.active * keep_slot,
             payload_ids=torch.where(keep_payload, self.payload_ids, 0),
             payload_mask=self.payload_mask & keep_payload,
-            value_payload_ids=torch.where(keep_payload, self.value_payload_ids, 0),
-            value_payload_mask=self.value_payload_mask & keep_payload,
             age=torch.where(keep_slot, self.age, 0),
             last_access=torch.where(keep_slot, self.last_access, -1),
             access_count=torch.where(keep_slot, self.access_count, 0),
@@ -179,11 +161,8 @@ class PendingRoundState:
 
     keys: Tensor
     values: Tensor
-    lexical_values: Tensor
     payload_ids: Tensor
     payload_mask: Tensor
-    value_payload_ids: Tensor
-    value_payload_mask: Tensor
     write_probability: Tensor
     confidence: Tensor
     valid: Tensor
@@ -203,9 +182,6 @@ class PendingRoundState:
         return cls(
             keys=torch.zeros(*candidates, config.hidden_size, device=device, dtype=dtype),
             values=torch.zeros(*candidates, config.hidden_size, device=device, dtype=dtype),
-            lexical_values=torch.zeros(
-                *candidates, config.hidden_size, device=device, dtype=dtype
-            ),
             payload_ids=torch.full(
                 (*candidates, config.payload_tokens),
                 config.pad_token_id,
@@ -213,15 +189,6 @@ class PendingRoundState:
                 dtype=torch.long,
             ),
             payload_mask=torch.zeros(
-                *candidates, config.payload_tokens, device=device, dtype=torch.bool
-            ),
-            value_payload_ids=torch.full(
-                (*candidates, config.payload_tokens),
-                config.pad_token_id,
-                device=device,
-                dtype=torch.long,
-            ),
-            value_payload_mask=torch.zeros(
                 *candidates, config.payload_tokens, device=device, dtype=torch.bool
             ),
             write_probability=torch.zeros(candidates, device=device, dtype=dtype),
@@ -246,17 +213,10 @@ class PendingRoundState:
         return PendingRoundState(
             keys=self.keys * keep_value,
             values=self.values * keep_value,
-            lexical_values=self.lexical_values * keep_value,
             payload_ids=torch.where(
                 keep_value, self.payload_ids, torch.zeros_like(self.payload_ids)
             ),
             payload_mask=self.payload_mask & keep_value,
-            value_payload_ids=torch.where(
-                keep_value,
-                self.value_payload_ids,
-                torch.zeros_like(self.value_payload_ids),
-            ),
-            value_payload_mask=self.value_payload_mask & keep_value,
             write_probability=self.write_probability * keep_candidate,
             confidence=self.confidence * keep_candidate,
             valid=self.valid & keep_candidate,

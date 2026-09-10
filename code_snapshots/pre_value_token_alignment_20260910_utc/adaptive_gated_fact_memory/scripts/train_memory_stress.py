@@ -129,13 +129,6 @@ def autocast_context(device: torch.device):
     return contextlib.nullcontext()
 
 
-def _mean_moe_expert_fractions(fractions: list[torch.Tensor]) -> torch.Tensor:
-    """Average MoE fractions over rounds and layers, preserving experts."""
-
-    stacked = torch.stack(fractions).float()
-    return stacked.reshape(-1, stacked.shape[-1]).mean(dim=0)
-
-
 def environment_record(device: torch.device) -> dict[str, Any]:
     record: dict[str, Any] = {
         "created_at_utc": utc_now(),
@@ -165,9 +158,6 @@ def load_stress_model(
     memory_read_top_k: int,
     fusion_gate_override: float | None = None,
     memory_value_mode: str = "combined",
-    value_token_alignment: bool = False,
-    moe_experts: int = 1,
-    moe_top_k: int = 1,
 ) -> AdaptiveFactMemoryLM:
     config = FactMemoryConfig(
         memory_slots=memory_slots,
@@ -182,83 +172,23 @@ def load_stress_model(
         merge_threshold=0.999,
         write_threshold=0.1 if training else 0.5,
         retention_threshold=0.1 if training else 0.5,
-        moe_experts=moe_experts,
-        moe_top_k=moe_top_k,
     )
     model = AdaptiveFactMemoryLM(
         config,
         memory_policy=memory_policy,
         fusion_gate_override=fusion_gate_override,
         memory_value_mode=memory_value_mode,
-        value_token_alignment=value_token_alignment,
     ).to(device)
     checkpoint = torch.load(BACKBONE_CHECKPOINT, map_location="cpu", weights_only=False)
     state_dict = checkpoint.get("model", checkpoint)
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
-    allowed_new_prefixes = (
-        "fact_extractor.value_start_head.",
-        "fact_extractor.value_length_head.",
-        "fact_extractor.lexical_projection.",
-        "memory_token_projection.",
-        "memory_token_norm.",
-    )
-    allowed_new_exact = {"memory_token_positions"}
-    def is_new_moe_parameter(name: str) -> bool:
-        return ".moe." in name
-
-    disallowed_missing = [
-        name
-        for name in missing
-        if not (
-            is_new_moe_parameter(name)
-            or (value_token_alignment and (
-                name in allowed_new_exact
-                or any(name.startswith(prefix) for prefix in allowed_new_prefixes)
-            ))
-        )
-    ]
-    if disallowed_missing or unexpected:
-        raise RuntimeError(
-            f"checkpoint mismatch; missing={disallowed_missing}, unexpected={unexpected}"
-        )
-    # In MoE mode the old dense FFN is present in the parent checkpoint.  Use
-    # it to initialize every expert before training, while retaining the
-    # dense parameters in the module for checkpoint compatibility.
-    if moe_experts > 1:
-        for block in model.blocks:
-            block.initialize_moe_from_dense()
+    if missing or unexpected:
+        raise RuntimeError(f"checkpoint mismatch; missing={missing}, unexpected={unexpected}")
     # The stress protocol does not study assistant-state writes.
     with torch.no_grad():
         model.memory_controller.assistant_write_head.bias.fill_(-10.0)
     base.configure_memory_policy(model, memory_policy)
     return model
-
-
-def stress_parameter_groups(model: torch.nn.Module) -> list[dict[str, Any]]:
-    """Use the protocol LRs while treating the new token decoder as memory."""
-
-    memory_markers = (
-        "fact_extractor",
-        "memory_controller",
-        "memory_reader",
-        "memory_norm",
-        "memory_fusion",
-        "memory_token",
-    )
-    backbone: list[torch.nn.Parameter] = []
-    memory: list[torch.nn.Parameter] = []
-    for name, parameter in model.named_parameters():
-        if not parameter.requires_grad:
-            continue
-        (memory if any(marker in name for marker in memory_markers) else backbone).append(
-            parameter
-        )
-    groups: list[dict[str, Any]] = []
-    if backbone:
-        groups.append({"params": backbone, "lr": 3.0e-5, "name": "backbone"})
-    if memory:
-        groups.append({"params": memory, "lr": 3.0e-4, "name": "memory"})
-    return groups
 
 
 def _is_fixed(memory_policy: str) -> bool:
@@ -276,124 +206,11 @@ def _stress_auxiliary_losses(
 
     # Reuse the audited implementation so the stress and original protocols
     # have identical token-level loss semantics.
-    losses = base.auxiliary_losses(
+    return base.auxiliary_losses(
         model,
         output,
         collated,
         fact_round=durable_round,
-    )
-    zero = output.logits.sum() * 0.0
-    if not model.value_token_alignment or not durable_round:
-        losses.update({"value_start": zero, "value_length": zero})
-        return losses
-
-    start_terms: list[torch.Tensor] = []
-    length_terms: list[torch.Tensor] = []
-    user_mask = collated.attention_mask & (
-        collated.roles == int(SourceRole.USER)
-    )
-    for row, targets in enumerate(collated.value_length_targets):
-        masked_start_logits = output.supervision["value_start_logits"][row].masked_fill(
-            ~user_mask[row], -1.0e4
-        )
-        for start, length in targets:
-            start_terms.append(
-                F.cross_entropy(
-                    masked_start_logits[None],
-                    torch.tensor([start], device=output.logits.device),
-                )
-            )
-            length_terms.append(
-                F.cross_entropy(
-                    output.supervision["value_length_logits"][row, start][None],
-                    torch.tensor([length - 1], device=output.logits.device),
-                )
-            )
-    losses["value_start"] = torch.stack(start_terms).mean() if start_terms else zero
-    losses["value_length"] = torch.stack(length_terms).mean() if length_terms else zero
-    return losses
-
-
-def _answer_sequences(examples: list[StressMemoryExample]) -> list[tuple[int, ...]]:
-    return [
-        tuple(token for token in example.answer_ids if token != 50_256)
-        for example in examples
-    ]
-
-
-def memory_to_token_loss(
-    model: AdaptiveFactMemoryLM,
-    lexical_values: torch.Tensor,
-    answer_sequences: list[tuple[int, ...]],
-) -> tuple[torch.Tensor, float, float]:
-    """Return sequence CE, token accuracy, and whole-value exact match."""
-
-    if lexical_values.shape[0] != len(answer_sequences):
-        raise ValueError("one lexical value is required per answer sequence")
-    max_tokens = max((len(sequence) for sequence in answer_sequences), default=0)
-    if max_tokens == 0:
-        zero = lexical_values.sum() * 0.0
-        return zero, 0.0, 0.0
-    targets = torch.full(
-        (len(answer_sequences), max_tokens),
-        -100,
-        dtype=torch.long,
-        device=lexical_values.device,
-    )
-    for row, sequence in enumerate(answer_sequences):
-        targets[row, : len(sequence)] = torch.tensor(
-            sequence, dtype=torch.long, device=lexical_values.device
-        )
-    logits = model.memory_to_token_logits(lexical_values, max_tokens)
-    loss = F.cross_entropy(
-        logits.float().reshape(-1, logits.shape[-1]),
-        targets.reshape(-1),
-        ignore_index=-100,
-    )
-    predictions = logits.argmax(dim=-1)
-    mask = targets != -100
-    token_accuracy = float((predictions[mask] == targets[mask]).float().mean().detach())
-    sequence_matches = []
-    for row, sequence in enumerate(answer_sequences):
-        sequence_matches.append(
-            bool(
-                torch.equal(
-                    predictions[row, : len(sequence)],
-                    targets[row, : len(sequence)],
-                )
-            )
-        )
-    exact_match = statistics.fmean(sequence_matches) if sequence_matches else 0.0
-    return loss, token_accuracy, exact_match
-
-
-def oracle_candidate_value_loss(
-    model: AdaptiveFactMemoryLM,
-    fact_output,
-    fact_round,
-    examples: list[StressMemoryExample],
-) -> tuple[torch.Tensor, float, float]:
-    """Teacher-force the labelled value span so its encoder receives gradients."""
-
-    batch = len(examples)
-    starts = torch.zeros(batch, 1, dtype=torch.long, device=fact_round.input_ids.device)
-    lengths = torch.zeros_like(starts)
-    valid = torch.zeros(batch, 1, dtype=torch.bool, device=fact_round.input_ids.device)
-    for row, targets in enumerate(fact_round.value_length_targets):
-        if targets:
-            starts[row, 0], lengths[row, 0] = targets[0]
-            valid[row, 0] = True
-    lexical_values, _, _ = model.fact_extractor.encode_value_spans(
-        fact_output.supervision["fact_hidden"],
-        fact_round.input_ids,
-        fact_round.attention_mask,
-        fact_round.roles,
-        starts,
-        lengths,
-        valid,
-    )
-    return memory_to_token_loss(
-        model, lexical_values[:, 0], _answer_sequences(examples)
     )
 
 
@@ -404,11 +221,6 @@ def stress_training_batch_loss(
     device: torch.device,
     *,
     memory_policy: str,
-    value_start_loss_weight: float = 0.50,
-    value_length_loss_weight: float = 0.25,
-    candidate_token_loss_weight: float = 0.50,
-    retrieved_token_loss_weight: float = 0.50,
-    moe_load_balance_weight: float = 0.01,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Train one variable-length durable/noise/delay/query conversation batch."""
 
@@ -424,7 +236,6 @@ def stress_training_batch_loss(
     state_before_query = None
     tracked_target_slots: list[int | None] = [None for _ in examples]
     retention_terms_over_time: list[torch.Tensor] = []
-    moe_round_losses: list[torch.Tensor] = []
     query_index = len(rounds) - 1
 
     for round_index, collated in enumerate(rounds):
@@ -441,7 +252,6 @@ def stress_training_batch_loss(
             hard_memory=False,
         )
         round_outputs.append(output)
-        moe_round_losses.append(output.diagnostics.get("moe_aux_loss", output.logits.sum() * 0.0))
         state = output.state
         if memory_policy == "none":
             # Only the answer round has assistant targets in this protocol.
@@ -549,35 +359,6 @@ def stress_training_batch_loss(
                 "read_target_score": 0.0,
             }
         )
-        # Apply the same MoE objective to SWA-only so memory-policy comparisons
-        # differ only in the memory path, not in FFN training.
-        moe_loss = torch.stack(moe_round_losses).mean()
-        total = total + moe_load_balance_weight * moe_loss
-        scalar["moe_load_balance"] = float(moe_loss.detach().cpu())
-        token_fracs = [
-            item.diagnostics["moe_expert_token_fraction"]
-            for item in round_outputs
-            if item.diagnostics["moe_expert_token_fraction"].numel()
-        ]
-        dispatch_fracs = [
-            item.diagnostics["moe_expert_dispatch_fraction"]
-            for item in round_outputs
-            if item.diagnostics["moe_expert_dispatch_fraction"].numel()
-        ]
-        entropies = [
-            item.diagnostics["moe_routing_entropy"]
-            for item in round_outputs
-            if item.diagnostics["moe_routing_entropy"].numel()
-        ]
-        if token_fracs:
-            for expert_index, value in enumerate(_mean_moe_expert_fractions(token_fracs)):
-                scalar[f"moe_expert_{expert_index}_token_fraction"] = float(value.detach().cpu())
-            for expert_index, value in enumerate(
-                _mean_moe_expert_fractions(dispatch_fracs)
-            ):
-                scalar[f"moe_expert_{expert_index}_dispatch_fraction"] = float(value.detach().cpu())
-            scalar["moe_routing_entropy"] = float(torch.stack(entropies).float().mean().detach().cpu())
-        scalar["total"] = float(total.detach().cpu())
         return total, scalar
 
     if state_before_query is None:
@@ -644,56 +425,6 @@ def stress_training_batch_loss(
         }
     )
 
-    moe_loss = torch.stack(
-        [output.diagnostics.get("moe_aux_loss", read_loss * 0.0) for output in round_outputs]
-    ).mean()
-    candidate_token_accuracy = 0.0
-    candidate_token_exact = 0.0
-    retrieved_token_accuracy = 0.0
-    retrieved_token_exact = 0.0
-    if model.value_token_alignment:
-        candidate_token_loss, candidate_token_accuracy, candidate_token_exact = (
-            oracle_candidate_value_loss(
-                model, round_outputs[0], rounds[0], examples
-            )
-        )
-        retrieved_values: list[torch.Tensor] = []
-        retrieved_examples: list[StressMemoryExample] = []
-        for row, example in enumerate(examples):
-            row_state = state_before_query.index_select(
-                torch.tensor([row], device=device)
-            )
-            slot = base.payload_slot(
-                row_state,
-                example.fact_payload,
-                active_threshold=model.config.active_threshold,
-                relaxed=True,
-            )
-            if slot is not None:
-                retrieved_values.append(
-                    state_before_query.memory.lexical_values[row, slot].detach()
-                )
-                retrieved_examples.append(example)
-        if retrieved_values:
-            retrieved_token_loss, retrieved_token_accuracy, retrieved_token_exact = (
-                memory_to_token_loss(
-                    model,
-                    torch.stack(retrieved_values),
-                    _answer_sequences(retrieved_examples),
-                )
-            )
-        else:
-            retrieved_token_loss = read_loss * 0.0
-    else:
-        candidate_token_loss = read_loss * 0.0
-        retrieved_token_loss = read_loss * 0.0
-    durable_losses.update(
-        {
-            "candidate_memory_token": candidate_token_loss,
-            "retrieved_memory_token": retrieved_token_loss,
-        }
-    )
-
     if _is_fixed(memory_policy):
         total = (
             durable_losses.get("lm", read_loss * 0.0)
@@ -701,11 +432,6 @@ def stress_training_batch_loss(
             + 0.25 * durable_losses["length"]
             + 1.0 * read_loss
             + 0.50 * key_align_loss
-            + value_start_loss_weight * durable_losses["value_start"]
-            + value_length_loss_weight * durable_losses["value_length"]
-            + candidate_token_loss_weight * candidate_token_loss
-            + retrieved_token_loss_weight * retrieved_token_loss
-            + moe_load_balance_weight * moe_loss
         )
     else:
         total = (
@@ -717,53 +443,14 @@ def stress_training_batch_loss(
             + 0.50 * key_align_loss
             + 0.10 * retention_loss
             + 0.01 * budget_loss
-            + value_start_loss_weight * durable_losses["value_start"]
-            + value_length_loss_weight * durable_losses["value_length"]
-            + candidate_token_loss_weight * candidate_token_loss
-            + retrieved_token_loss_weight * retrieved_token_loss
-            + moe_load_balance_weight * moe_loss
         )
     scalar = {name: float(value.detach().cpu()) for name, value in durable_losses.items()}
-    if model.config.moe_experts > 1:
-        token_fracs = [
-            output.diagnostics["moe_expert_token_fraction"]
-            for output in round_outputs
-            if output.diagnostics["moe_expert_token_fraction"].numel()
-        ]
-        dispatch_fracs = [
-            output.diagnostics["moe_expert_dispatch_fraction"]
-            for output in round_outputs
-            if output.diagnostics["moe_expert_dispatch_fraction"].numel()
-        ]
-        entropies = [
-            output.diagnostics["moe_routing_entropy"]
-            for output in round_outputs
-            if output.diagnostics["moe_routing_entropy"].numel()
-        ]
-        if token_fracs:
-            mean_token_fracs = _mean_moe_expert_fractions(token_fracs)
-            mean_dispatch_fracs = _mean_moe_expert_fractions(dispatch_fracs)
-            for expert_index in range(model.config.moe_experts):
-                scalar[f"moe_expert_{expert_index}_token_fraction"] = float(
-                    mean_token_fracs[expert_index].detach().cpu()
-                )
-                scalar[f"moe_expert_{expert_index}_dispatch_fraction"] = float(
-                    mean_dispatch_fracs[expert_index].detach().cpu()
-                )
-            scalar["moe_routing_entropy"] = float(
-                torch.stack(entropies).float().mean().detach().cpu()
-            )
     scalar.update(
         {
             "total": float(total.detach().cpu()),
             "active_slots": float(active_count.detach().mean().cpu()),
             "read_supervised_rows": float(len(read_target_slots)),
             "read_target_score": statistics.fmean(target_scores) if target_scores else 0.0,
-            "candidate_memory_token_accuracy": candidate_token_accuracy,
-            "candidate_memory_token_exact": candidate_token_exact,
-            "retrieved_memory_token_accuracy": retrieved_token_accuracy,
-            "retrieved_memory_token_exact": retrieved_token_exact,
-            "moe_load_balance": float(moe_loss.detach().cpu()),
         }
     )
     return total, scalar
@@ -786,8 +473,7 @@ def _active_user_slot_bytes(model: AdaptiveFactMemoryLM, state) -> tuple[int, in
     """
 
     names = (
-        "keys", "values", "lexical_values", "active", "payload_ids", "payload_mask",
-        "value_payload_ids", "value_payload_mask", "age",
+        "keys", "values", "active", "payload_ids", "payload_mask", "age",
         "last_access", "access_count", "confidence", "conflict", "source_role",
     )
     per_slot = 0
@@ -812,8 +498,6 @@ def generate_stress_one(
     cumulative_noise_candidates = 0
     survival_curve: list[bool] = []
     prequery_diagnostics: list[dict[str, Any]] = []
-    value_start_correct = False
-    value_length_correct = False
 
     for round_index, kind in enumerate(example.round_kinds[:-1]):
         ids, roles, mask = _round_tensor(example, round_index, device)
@@ -827,15 +511,6 @@ def generate_stress_one(
         )
         state = output.state
         diagnostic = output.diagnostics
-        if kind == "durable" and model.value_token_alignment:
-            expected_start = example.rounds[round_index].value_starts[0]
-            expected_length = example.rounds[round_index].value_lengths[0]
-            value_start_correct = (
-                int(diagnostic["candidate_value_starts"][0, 0]) == expected_start
-            )
-            value_length_correct = (
-                int(diagnostic["candidate_value_lengths"][0, 0]) == expected_length
-            )
         if kind == "noise" and model.memory_policy != "none":
             accepted = diagnostic.get("write_accepted")
             valid = diagnostic.get("candidate_payload_mask")
@@ -906,55 +581,6 @@ def generate_stress_one(
         hard_memory=True,
     )
     state = query_output.state
-    target_first = int(example.answer_ids[0])
-    first_logits = query_output.logits[0, -1].float()
-    target_logit = first_logits[target_first]
-    other_logits = first_logits.clone()
-    other_logits[target_first] = -torch.inf
-    answer_first_rank = 1 + int((first_logits > target_logit).sum())
-    answer_first_top5 = answer_first_rank <= 5
-    answer_first_margin = float((target_logit - other_logits.max()).cpu())
-    answer_first_nll = float((-F.log_softmax(first_logits, dim=-1)[target_first]).cpu())
-
-    teacher_ids, teacher_roles, teacher_mask = _round_tensor(
-        example, len(example.rounds) - 1, device
-    )
-    teacher_output = model.forward_round(
-        teacher_ids,
-        state=before_query,
-        attention_mask=teacher_mask,
-        source_roles=teacher_roles,
-        commit=False,
-        hard_memory=True,
-    )
-    teacher_positions = torch.zeros_like(teacher_mask)
-    teacher_positions[:, query_length - 1 : teacher_ids.shape[1] - 1] = True
-    teacher_token_count = int(teacher_positions.sum())
-    teacher_forced_answer_nll = float(
-        (
-            base.masked_loss_sum(
-                teacher_output.logits,
-                teacher_ids,
-                teacher_positions,
-            )
-            / max(teacher_token_count, 1)
-        ).cpu()
-    )
-
-    memory_token_accuracy = 0.0
-    memory_token_exact = False
-    if model.value_token_alignment and target_slot is not None:
-        answer_sequence = _answer_sequences([example])[0]
-        memory_logits = model.memory_to_token_logits(
-            before_query.memory.lexical_values[0, target_slot][None],
-            len(answer_sequence),
-        )
-        memory_prediction = memory_logits[0].argmax(dim=-1)
-        memory_target = torch.tensor(answer_sequence, device=device)
-        memory_token_accuracy = float(
-            (memory_prediction == memory_target).float().mean().cpu()
-        )
-        memory_token_exact = bool(torch.equal(memory_prediction, memory_target))
     generated: list[int] = []
     current = query_output.logits[:, -1].argmax(dim=-1)
     for index in range(max_answer_tokens):
@@ -1001,16 +627,6 @@ def generate_stress_one(
         "target_mrr": target_mrr,
         "target_top1": target_top1,
         "read_hit_at_k": bool(read_hit),
-        "teacher_forced_answer_nll": teacher_forced_answer_nll,
-        "answer_first_token_nll": answer_first_nll,
-        "answer_first_token_rank": answer_first_rank,
-        "answer_first_token_top5": answer_first_top5,
-        "answer_first_token_logit_margin": answer_first_margin,
-        "value_start_correct": value_start_correct,
-        "value_length_correct": value_length_correct,
-        "value_span_exact": value_start_correct and value_length_correct,
-        "memory_token_accuracy": memory_token_accuracy,
-        "memory_token_exact": memory_token_exact,
         "read_valid_count": int(read_valid.sum().item()) if read_valid is not None else 0,
         "active_slots": int(
             (before_query.memory.active[0] > model.config.active_threshold).sum()
@@ -1072,18 +688,6 @@ def evaluate_stress(
                 "target_top1": mean("target_top1"),
                 "target_mrr": mean("target_mrr"),
                 "read_hit_at_k": mean("read_hit_at_k"),
-                "teacher_forced_answer_nll": mean("teacher_forced_answer_nll"),
-                "answer_first_token_nll": mean("answer_first_token_nll"),
-                "answer_first_token_rank": mean("answer_first_token_rank"),
-                "answer_first_token_top5": mean("answer_first_token_top5"),
-                "answer_first_token_logit_margin": mean(
-                    "answer_first_token_logit_margin"
-                ),
-                "value_start_accuracy": mean("value_start_correct"),
-                "value_length_accuracy": mean("value_length_correct"),
-                "value_span_exact": mean("value_span_exact"),
-                "memory_token_accuracy": mean("memory_token_accuracy"),
-                "memory_token_exact": mean("memory_token_exact"),
                 "mean_active_slots": mean("active_slots"),
                 "mean_active_user_slot_bytes": mean("active_user_slot_bytes"),
                 "mean_state_bytes": mean("state_bytes"),
@@ -1107,56 +711,6 @@ def evaluate_stress(
         if rows
         else 0.0,
         "overall_read_hit_at_k": statistics.fmean(float(row["read_hit_at_k"]) for row in rows)
-        if rows
-        else 0.0,
-        "overall_teacher_forced_answer_nll": statistics.fmean(
-            float(row["teacher_forced_answer_nll"]) for row in rows
-        )
-        if rows
-        else 0.0,
-        "overall_answer_first_token_nll": statistics.fmean(
-            float(row["answer_first_token_nll"]) for row in rows
-        )
-        if rows
-        else 0.0,
-        "overall_answer_first_token_rank": statistics.fmean(
-            float(row["answer_first_token_rank"]) for row in rows
-        )
-        if rows
-        else 0.0,
-        "overall_answer_first_token_top5": statistics.fmean(
-            float(row["answer_first_token_top5"]) for row in rows
-        )
-        if rows
-        else 0.0,
-        "overall_answer_first_token_logit_margin": statistics.fmean(
-            float(row["answer_first_token_logit_margin"]) for row in rows
-        )
-        if rows
-        else 0.0,
-        "overall_value_start_accuracy": statistics.fmean(
-            float(row["value_start_correct"]) for row in rows
-        )
-        if rows
-        else 0.0,
-        "overall_value_length_accuracy": statistics.fmean(
-            float(row["value_length_correct"]) for row in rows
-        )
-        if rows
-        else 0.0,
-        "overall_value_span_exact": statistics.fmean(
-            float(row["value_span_exact"]) for row in rows
-        )
-        if rows
-        else 0.0,
-        "overall_memory_token_accuracy": statistics.fmean(
-            float(row["memory_token_accuracy"]) for row in rows
-        )
-        if rows
-        else 0.0,
-        "overall_memory_token_exact": statistics.fmean(
-            float(row["memory_token_exact"]) for row in rows
-        )
         if rows
         else 0.0,
         "rows": rows,
@@ -1215,28 +769,17 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
         memory_read_top_k=args.memory_read_top_k,
         fusion_gate_override=args.fusion_gate_override,
         memory_value_mode=args.memory_value_mode,
-        value_token_alignment=args.value_token_alignment,
-        moe_experts=args.moe_experts,
-        moe_top_k=args.moe_top_k,
     )
     model.train()
     optimizer = torch.optim.AdamW(
-        stress_parameter_groups(model),
+        base.model_parameter_groups(model),
         betas=(0.9, 0.95),
         eps=1.0e-8,
         weight_decay=0.1,
     )
     resolved: dict[str, Any] = {
-        "protocol_version": (
-            "adaptive_fact_memory_selective_stress_v3_value_token"
-            if args.value_token_alignment
-            else "adaptive_fact_memory_selective_stress_v2"
-        ),
-        "stage": (
-            "stage2_selective_memory_stress_value_token_alignment"
-            if args.value_token_alignment
-            else "stage2_selective_memory_stress"
-        ),
+        "protocol_version": "adaptive_fact_memory_selective_stress_v2",
+        "stage": "stage2_selective_memory_stress",
         "run_id": args.run_id,
         "seed": args.seed,
         "memory_policy": args.memory_policy,
@@ -1252,13 +795,6 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
             "max_write_candidates": model.config.max_write_candidates,
             "merge_threshold": model.config.merge_threshold,
             "local_kv": "4 sinks + 124 recent",
-            "value_token_alignment": args.value_token_alignment,
-            "value_memory_fusion": args.memory_value_mode,
-            "memory_token_decoder": (
-                "position-conditioned tied-embedding auxiliary head"
-                if args.value_token_alignment
-                else None
-            ),
         },
         "data": {
             "task": "durable_user_fact -> user_temporary_fact_noise -> TinyStories_delay -> query",
@@ -1283,13 +819,6 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
             "fusion_gate_override": args.fusion_gate_override,
             "answer_leading_space": args.answer_leading_space,
             "memory_value_mode": args.memory_value_mode,
-            "value_start_loss_weight": args.value_start_loss_weight,
-            "value_length_loss_weight": args.value_length_loss_weight,
-            "candidate_token_loss_weight": args.candidate_token_loss_weight,
-            "retrieved_token_loss_weight": args.retrieved_token_loss_weight,
-            "moe_experts": args.moe_experts,
-            "moe_top_k": args.moe_top_k,
-            "moe_load_balance_weight": args.moe_load_balance_weight,
         },
         "request": vars(args),
         "environment": environment_record(device),
@@ -1300,8 +829,6 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
         Path(__file__).with_name("synthetic_memory_stress.py"),
         ROOT / "adaptive_gated_fact_memory" / "src" / "adaptive_fact_memory" / "model.py",
         ROOT / "adaptive_gated_fact_memory" / "src" / "adaptive_fact_memory" / "memory.py",
-        ROOT / "adaptive_gated_fact_memory" / "src" / "adaptive_fact_memory" / "state.py",
-        ROOT / "adaptive_gated_fact_memory" / "scripts" / "synthetic_memory.py",
         ROOT / "adaptive_gated_fact_memory" / "scripts" / "train_structured_memory.py",
     )
     resolved["code_hashes"] = {
@@ -1343,11 +870,6 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
                             rounds,
                             device,
                             memory_policy=args.memory_policy,
-                            value_start_loss_weight=args.value_start_loss_weight,
-                            value_length_loss_weight=args.value_length_loss_weight,
-                            candidate_token_loss_weight=args.candidate_token_loss_weight,
-                            retrieved_token_loss_weight=args.retrieved_token_loss_weight,
-                            moe_load_balance_weight=args.moe_load_balance_weight,
                         )
                     (loss / args.gradient_accumulation_steps).backward()
                     for name, value in scalars.items():
@@ -1414,9 +936,6 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
             memory_read_top_k=args.memory_read_top_k,
             fusion_gate_override=args.fusion_gate_override,
             memory_value_mode=args.memory_value_mode,
-            value_token_alignment=args.value_token_alignment,
-            moe_experts=args.moe_experts,
-            moe_top_k=args.moe_top_k,
         )
         eval_model.load_state_dict(model.state_dict())
         eval_model.eval()
@@ -1487,31 +1006,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--memory-value-mode",
-        choices=(
-            "combined",
-            "semantic_lexical",
-            "lexical_only",
-            "payload_only",
-            "value_only",
-        ),
+        choices=("combined", "payload_only", "value_only"),
         default="combined",
         help="Choose which stored value representation is sent to memory fusion.",
     )
-    parser.add_argument(
-        "--value-token-alignment",
-        action="store_true",
-        help=(
-            "Enable exact value-span extraction and the auxiliary bounded "
-            "memory-to-token decoder."
-        ),
-    )
-    parser.add_argument("--value-start-loss-weight", type=float, default=0.50)
-    parser.add_argument("--value-length-loss-weight", type=float, default=0.25)
-    parser.add_argument("--candidate-token-loss-weight", type=float, default=0.50)
-    parser.add_argument("--retrieved-token-loss-weight", type=float, default=0.50)
-    parser.add_argument("--moe-experts", type=int, default=1)
-    parser.add_argument("--moe-top-k", type=int, default=1)
-    parser.add_argument("--moe-load-balance-weight", type=float, default=0.01)
     parser.add_argument("--steps", type=int, default=2_000)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=2)
