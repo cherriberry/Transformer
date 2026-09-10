@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999993 (TeX Live 2022/dev/Debian) (preloaded format=xelatex 2026.9.10)  11 SEP 2026 00:56
+This is XeTeX, Version 3.141592653-2.6-0.999993 (TeX Live 2022/dev/Debian) (preloaded format=xelatex 2026.9.10)  11 SEP 2026 03:32
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -434,29 +434,39 @@ Package fontspec Info: Font family 'NotoSansMonoCJKSC(0)' created for font
 
 
 ] [2] [3] [4]
-[5]
-Underfull \vbox (badness 3250) has occurred while \output is active []
-
- [6]
-Underfull \hbox (badness 1048) in paragraph at lines 461--462
+[5] [6] [7] [8]
+Underfull \hbox (badness 1048) in paragraph at lines 629--630
 \TU/lmr/m/n/10 2020. Longformer: The long-document transformer.
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 464--465
+Underfull \vbox (badness 4479) has occurred while \output is active []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 632--633
 []\TU/lmr/m/n/10 Alexia Jolicoeur-Martineau, Rhea Sanjay Suk-
  []
 
-[7] [8
+
+Underfull \hbox (badness 10000) in paragraph at lines 641--642
+\TU/lmr/m/n/10 ers. 2020. Memformer: A memory-augmented
+ []
+
+
+Underfull \hbox (badness 1253) in paragraph at lines 641--642
+\TU/lmr/m/n/10 transformer for sequence modeling. arXiv preprint
+ []
+
+[9] [10
 
 ] (./adaptive_gated_memory_paper_draft_zh.aux) ) 
 Here is how much of TeX's memory you used:
- 7882 strings out of 478203
- 208807 string characters out of 5855029
- 609274 words of memory out of 5000000
- 28396 multiletter control sequences out of 15000+600000
- 470479 words of font info for 58 fonts, out of 8000000 for 9000
+ 7981 strings out of 478203
+ 214512 string characters out of 5855029
+ 611274 words of memory out of 5000000
+ 28491 multiletter control sequences out of 15000+600000
+ 470503 words of font info for 61 fonts, out of 8000000 for 9000
  14 hyphenation exceptions out of 8191
- 70i,16n,81p,539b,320s stack positions out of 5000i,500n,10000p,200000b,80000s
+ 70i,16n,81p,539b,335s stack positions out of 5000i,500n,10000p,200000b,80000s
 
-Output written on adaptive_gated_memory_paper_draft_zh.pdf (8 pages).
+Output written on adaptive_gated_memory_paper_draft_zh.pdf (10 pages).

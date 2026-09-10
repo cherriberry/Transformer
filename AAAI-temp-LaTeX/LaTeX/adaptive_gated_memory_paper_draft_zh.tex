@@ -412,6 +412,174 @@ Value-token & .471/.508/.511/.511 & .239/.259/.244/.258 & 1.355\\
 \end{tabular}
 \end{table*}
 
+\subsection{与六种基础架构及滑动窗口参考的综合比较}
+
+为避免将不同实验协议下的数值误读为同一排行榜，本节分三层报告结果。第一层是统一
+TinyStories/TinyLM 的十百万预测词元实验，用于比较 Full Attention、Longformer、
+Memformer、Linformer、Performer 和 Reformer 六种训练型路径\cite{beltagy2020longformer,
+memformer2020,linformer2020,performer2021,reformer2020}；第二层是同一骨干上的
+Keyformer 推理期缓存压缩；第三层是本文的选择性事实记忆压力测试。前两层主要衡量
+语言模型困惑度与系统开销，第三层则衡量跨轮事实的写入、保留、检索和精确回答。因此，
+表中的 ``N/A'' 表示该架构在相应协议下没有定义该指标，而不是性能为零。
+
+\paragraph{六种训练型架构的 Dense 比较。}
+表~\ref{tab:six-dense-comparison} 汇总统一 TinyStories 协议下的 Dense FFN 结果。训练
+吞吐包含周期性 probe 和 checkpoint；为便于直观比较，训练时间由 $10^7$ 个预测词元
+除以该吞吐得到，是 run-level 墙钟时间的近似值。Full Attention 和 Reformer 的结果
+来自 C v2 协议，其他四种结果来自 A+B unified 协议；它们共享 TinyLM 维度和主要优化
+设置，但仍存在 runner 细节差异，故表中结论应理解为机制级而非严格等条件因果比较。
+
+\begin{table*}[t]
+\centering
+\scriptsize
+\caption{六种基础架构的 Dense FFN 结果。时间为十百万预测词元的近似墙钟时间；Keyformer 不属于训练型架构，故单列于后文。}
+\label{tab:six-dense-comparison}
+\begin{tabular}{l l r r r r r l}
+\toprule
+架构 & 主要状态/压缩路径 & Val PPL $\downarrow$ & 吞吐 (tok/s) $\uparrow$ & 约训练时间 (min) $\downarrow$ & Peak alloc. & 参数量 & 长期事实路径 \\
+\midrule
+Full Attention & 完整 causal KV & $18.95\pm0.12$ & $53{,}770\pm585$ & $3.10$ & $2.58$ GiB & 29.93M & 无 \\
+Longformer & 固定左侧窗口 $W=128$ & $17.91\pm0.08$ & $13{,}499\pm269$ & $12.35$ & $6.80$ GiB & 29.93M & 无 \\
+Memformer & 64 个 recurrent slots & $17.27\pm0.08$ & $14{,}670\pm301$ & $11.36$ & $2.63$ GiB & 33.47M & 固定摘要 \\
+Linformer & K/V 序列低秩投影 & $18.80\pm0.11$ & $27{,}858\pm106$ & $5.98$ & $2.58$ GiB & 29.93M & 无 \\
+Performer & FAVOR+ 随机特征 & $31.52\pm0.26$ & $27{,}079\pm541$ & $6.15$ & $2.70$ GiB & 29.93M & 无 \\
+Reformer & 因果 LSH 候选 & $20.58\pm0.16$ & $46{,}939\pm954$ & $3.55$ & $2.57$ GiB & 29.04M & 无 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+在该统一筛选中，Memformer 的 PPL 最低，但它比公共主干多约 $11.83\%$ 参数；
+Longformer 的质量接近 Memformer，却承担了更高的峰值显存；Linformer 和 Performer
+具有较高训练吞吐，但当前低秩或随机特征近似会带来质量损失。Full Attention 的吞吐
+最高主要得益于成熟的 SDPA 路径，不能简单将这一工程优势等同于更低的理论复杂度。
+Reformer 的吞吐接近 Full Attention，但其质量低于前述三种路径，并且 LSH 候选构造的
+因果性和稀疏 kernel 实现更加敏感。上述结果说明，减少理论 attention 复杂度并不自动
+转化为端到端速度优势；训练吞吐还受到张量布局、Python 调度、排序和投影开销的影响。
+
+\paragraph{MoE 对六种骨干的影响。}
+在全部六层 FFN 中加入四专家 Top-1 dropless MoE 后，统一 seed-17 screening 结果如表
+~\ref{tab:six-moe-comparison} 所示。MoE 增加了总参数容量，但每个 token 只选择一个
+专家，因此激活参数仍接近 Dense FFN。表中 MoE 时间同样按十百万预测词元的工作流吞吐
+换算，不能与专用 fused grouped-GEMM 的理论峰值混同。
+
+\begin{table*}[t]
+\centering
+\scriptsize
+\caption{六种骨干在全层 MoE 下的 seed-17 结果。Keyformer 使用 Full-Attention+MoE 检查点，但本身不参与训练。}
+\label{tab:six-moe-comparison}
+\begin{tabular}{l r r r r r r}
+\toprule
+架构 & Val PPL $\downarrow$ & 吞吐 (tok/s) $\uparrow$ & 约训练时间 (min) $\downarrow$ & Peak alloc. & 总参数 & 激活参数/token \\
+\midrule
+Memformer & $15.7831$ & $12{,}201$ & $13.66$ & $2.96$ GiB & 54.71M & 33.48M \\
+Longformer & $17.6290$ & $12{,}265$ & $13.59$ & $7.23$ GiB & 51.17M & 29.93M \\
+Full Attention & $18.3174$ & $26{,}504$ & $6.29$ & $2.91$ GiB & 51.17M & 29.93M \\
+Linformer & $18.6405$ & $20{,}340$ & $8.20$ & $2.91$ GiB & 51.17M & 29.93M \\
+Reformer & $19.7071$ & $26{,}821$ & $6.22$ & $2.90$ GiB & 50.28M & 29.05M \\
+Performer & $31.7477$ & $20{,}359$ & $8.19$ & $3.12$ GiB & 51.17M & 29.93M \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+相对于同 seed 的 Dense 版本，MoE 对 Memformer 的 PPL 改善最大（约 $8.30\%$），
+对 Longformer 和 Linformer 只有约 $1.43\%$ 和 $0.84\%$，对 Performer 几乎没有改善。
+这一现象不应被解释为 MoE 普遍增强了记忆能力：Memformer 同时保留了额外的 recurrent
+memory 参数，且所有 MoE 结果只有一个 seed。更稳妥的解释是，条件 FFN 容量与不同
+attention 状态路径存在交互，但 attention 近似误差或长期信息缺失不能仅靠扩大 FFN
+容量解决。当前普通 PyTorch dispatch 使训练吞吐下降约 $7\%$--$27\%$、峰值显存增加
+约 $6\%$--$15\%$；这反映原型实现而非 fused MoE kernel 的上限。
+
+\paragraph{Keyformer 的推理期比较。}
+Keyformer 改变的是已训练模型的 KV-cache，而不是训练网络。Dense Full-Attention
+检查点上，FullKV、Keyformer-75 和 Keyformer-50 的 PPL 分别为 $14.91$、$14.91$ 和
+$14.89$，平均 KV 字节数从 $4{,}709{,}376$ 降至 $3{,}538{,}944$ 和 $2{,}359{,}296$。
+在当前实现中，Keyformer-50 的 decode 吞吐由 $219.8$ 降至 $184.2$ token/s，下降约
+$16.2\%$。在 Full-Attention+MoE 检查点上也观察到一致方向：KV 字节减少 $50\%$，
+PPL 基本不变，但吞吐下降约 $17.2\%$。因此，Keyformer 的主要收益是显存预算，而非
+当前 Python 选择与 gather 路径下的速度；它不应与六种训练型架构共享一个训练时间排名。
+
+\paragraph{所给滑动窗口文献的 SWA-sink 参考。}
+用户指定的 ``Sliding-window beats linear attention'' 文献（作者来自 Microsoft Applied
+Sciences Group 与 Independent，并非 Google 官方论文）将四个 attention sink 与
+固定滑动窗口结合，报告了无需后训练的推理路径。在其多模型下游恢复率实验中，
+SWA(窗口 $64$、sink $4$) 的 MMLU 恢复率为 $93.2\pm3.5\%$，六项任务平均恢复率为
+$99.0\pm0.5\%$；作为对照，LoLCATs、Liger-GLA 和 QLinAtt 的平均恢复率分别为
+$97.5\pm1.3\%$、$92.0\pm2.8\%$ 和 $92.9\pm0.0\%$\cite{jolicoeur2026sliding}。
+该文的 SWA 结果没有新增训练 token 或后训练阶段，因此训练改造开销为零，但它仍然
+只保留局部 token KV，不能保证跨越窗口的任意事实可被逐字恢复。本文采用的
+SWA-sink 局部通道与该参考共享“固定窗口+少量 sink”的思想，但额外维护内容驱动的
+事实槽位；两者在状态语义上并非同一模型。
+
+需要区分论文来源与实现来源：Google Gemma-PyTorch 中的 
+\texttt{LOCAL\_SLIDING} 是局部注意力的官方实现参考，而 ``Sliding-window beats
+linear attention'' 本身的作者署名并非 Google，且截至本实验记录日期没有可确认的
+作者代码仓库。因此，本文将该 PDF 的结论作为外部 SWA-sink 证据，将 Gemma 的
+\texttt{LOCAL\_SLIDING} 仅作为代码级窗口构造参考；二者都不与本文 TinyLM 的绝对
+PPL、训练时间或事实记忆 EM 直接合并。
+
+\begin{table*}[t]
+\centering
+\scriptsize
+\caption{本文事实记忆与六种基础路径的机制级对照。六种基础架构的长期事实指标在当前 TinyStories 语言建模协议中未测量，故不以 N/A 伪装成零。}
+\label{tab:memory-mechanism-comparison}
+\begin{tabular}{l l l l l}
+\toprule
+方案 & 训练时是否改变 attention/状态 & 长期状态形式 & 是否能内容级拒绝噪声 & 主要记忆风险 \\
+\midrule
+Full Attention & 是，完整 attention & 全历史 KV，随长度增长 & 否 & KV 无界增长 \\
+Longformer & 是，固定窗口 & sink+recent token KV & 否 & 窗口外事实不可直接访问 \\
+Memformer & 是，segment recurrent state & 固定数量摘要槽 & 否（当前基线） & 压缩造成细节衰减 \\
+Linformer & 是，低秩 K/V & 投影后的序列表示 & 否 & 高秩局部信息损失 \\
+Performer & 是，随机特征 kernel & 前缀统计量/近似状态 & 否 & 近似误差与覆盖问题 \\
+Reformer & 是，LSH 候选 & 哈希候选连接 & 否 & 碰撞漏检、候选不完整 \\
+Keyformer & 否，仅推理 cache & 重要旧 KV+recent KV & 部分（按重要性） & 选择错误后历史不可恢复 \\
+本文 Value-token Gated & 是，局部 attention 外接事实记忆 & 8 个内容门控语义/词汇槽 & 是，写入+保留+合并 & 依赖事实边界与门控泛化 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\paragraph{事实记忆压力测试中的端到端对照。}
+六种基础架构的 TinyStories PPL 不能回答“重要事实在数千个干扰词元后是否仍被保留”。
+因此，本文进一步在独立的选择性记忆协议中报告记忆指标。该协议包含 $288$ 条验证
+样本、最多 $8$ 条临时事实和 $16$ 个延迟 segment，训练预算为 $2000$ 步；它与上文
+十百万预测词元的语言建模实验不共享绝对时间单位。Dense 与 Top-2 MoE 的关键结果为：
+
+\begin{table*}[t]
+\centering
+\scriptsize
+\caption{选择性事实记忆压力测试。这里的训练时间是 2000 步 run 的实际墙钟时间，不能与表~\ref{tab:six-dense-comparison} 的十百万词元时间直接相减。}
+\label{tab:memory-stress-comparison}
+\begin{tabular}{l l r r r r r r r}
+\toprule
+FFN & 记忆条件 & EM $\uparrow$ & Answer NLL $\downarrow$ & Survival $\uparrow$ & Recall@1 $\uparrow$ & Avg. slots $\downarrow$ & Noise accept $\downarrow$ & 训练时间 (s) \\
+\midrule
+Dense & SWA-only & 5.21\% & 1.38947 & N/A & N/A & 0.00 & N/A & -- \\
+Dense & Fixed-LRU & 74.65\% & 0.50323 & 92.01\% & 90.28\% & 4.25 & 75.00\% & -- \\
+Dense & old Gated & 52.43\% & 0.63089 & 100.00\% & 100.00\% & 1.00 & 0.00\% & 1323.0 \\
+Dense & Value-token Gated & \textbf{100.00\%} & \textbf{0.00001946} & \textbf{100.00\%} & \textbf{100.00\%} & \textbf{1.00} & \textbf{0.00\%} & \textbf{1380.1} \\
+MoE & SWA-only & 5.21\% & 1.38736 & N/A & N/A & 0.00 & N/A & -- \\
+MoE & Fixed-LRU & 65.28\% & 0.57731 & 93.06\% & 93.06\% & 4.25 & 75.00\% & -- \\
+MoE & old Gated & 32.99\% & 0.85217 & 100.00\% & 100.00\% & 1.00 & 0.00\% & 1905.0 \\
+MoE & Value-token Gated & \textbf{100.00\%} & \textbf{0.00002212} & \textbf{100.00\%} & \textbf{100.00\%} & \textbf{1.00} & \textbf{0.00\%} & \textbf{1927.1} \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+该表揭示了本文架构相对于六种基础 attention 路径的额外能力。SWA-only 与一般固定
+窗口路径一样，不能在局部 KV 之外提供稳定的事实恢复；Fixed-LRU 虽然获得较高 EM，
+却接收 $75\%$ 的临时事实，且平均占用 $4.25$ 个槽位。old Gated 已经解决选择性存储
+问题，但在没有值词元对齐时，EM 仍只有 $52.43\%$（加入 MoE 后为 $32.99\%$）。
+Value-token Gated 在 Dense 与 MoE 下均达到 $100\%$ EM、$100\%$ survival 和
+Recall@1，同时只激活一个事实槽位并拒绝全部临时事实。这表明本文的主要新增贡献
+不是单纯扩大 FFN 或局部窗口，而是把长期记忆管理和词级解码路径显式拆开。
+
+从训练开销看，Value-token 路径相对于 old Gated Dense 增加 $4.31\%$ 的训练时间、
+$0.36\%$ 的峰值 allocated 显存和 $0.61\%$ 的完整 recurrent state；相对于对应 Dense
+模型，Top-2 MoE 使 Value-token 条件的训练时间增加 $39.6\%$、吞吐下降 $28.4\%$、
+峰值显存增加约 $19.5\%$，总参数由 $32.16$M 增至 $60.48$M。换言之，本文架构以很小
+的 Dense 记忆扩展换取了显著的词级恢复收益，而 MoE 的主要作用是增加条件 FFN 容量，
+其资源成本不能被“每 token 只激活少数专家”这一事实完全抵消。
+
 \section{结果分析}
 
 \subsection{选择性记忆的收益来自容量分配}
@@ -468,6 +636,18 @@ Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N
 
 \bibitem[Xiao et~al.(2024)]{xiao2024streamingllm}
 Guangxuan Xiao, Yuandong Tian, Beidi Chen, Song Han, and Mike Lewis. 2024. Efficient streaming language models with attention sinks. In International Conference on Learning Representations.
+
+\bibitem[Wu et~al.(2020)]{memformer2020}
+Qingyu Wu, Zhenzhong Lan, Jingyu Li, and others. 2020. Memformer: A memory-augmented transformer for sequence modeling. arXiv preprint arXiv:2010.06891.
+
+\bibitem[Wang et~al.(2020)]{linformer2020}
+Sinong Wang, Belinda Z. Li, Madian Khabsa, Han Fang, and Hao Ma. 2020. Linformer: Self-attention with linear complexity. arXiv preprint arXiv:2006.04768.
+
+\bibitem[Choromanski et~al.(2021)]{performer2021}
+Krzysztof Choromanski, Valerii Likhosherstov, Dohan Yoon, et~al. 2021. Rethinking attention with performers. In International Conference on Learning Representations.
+
+\bibitem[Kitaev et~al.(2020)]{reformer2020}
+Nikita Kitaev, Łukasz Kaiser, and Anselm Levskaya. 2020. Reformer: The efficient transformer. In International Conference on Learning Representations.
 \end{thebibliography}
 
 \end{document}
