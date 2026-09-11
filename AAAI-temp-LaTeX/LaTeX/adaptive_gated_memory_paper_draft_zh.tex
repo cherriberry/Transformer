@@ -15,6 +15,7 @@
 \usepackage{amsmath}
 \usepackage{booktabs}
 \usepackage{multirow}
+\usepackage{placeins}
 \usepackage{xeCJK}
 
 \setCJKmainfont[AutoFakeBold=2.5]{Noto Serif CJK SC}
@@ -647,6 +648,7 @@ $0.36\%$ 的峰值 allocated 显存和 $0.61\%$ 的完整 recurrent state；相�
 的 Dense 记忆扩展换取了显著的词级恢复收益，而 MoE 的主要作用是增加条件 FFN 容量，
 其资源成本不能被“每 token 只激活少数专家”这一事实完全抵消。
 
+\FloatBarrier
 \section{结果分析}
 
 \subsection{选择性记忆的收益来自容量分配}
