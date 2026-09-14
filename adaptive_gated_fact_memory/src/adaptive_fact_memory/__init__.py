@@ -3,11 +3,15 @@
 from .config import FactMemoryConfig, SourceRole
 from .baselines import StreamingSWASourcePolicy
 from .model import AdaptiveFactMemoryLM, AdaptiveFactMemoryOutput
+from .memformer import MemformerDecoderLM, MemformerOutput, MemformerState
 from .state import ConversationState, FactMemoryState, LocalKVCache, PendingRoundState
 
 __all__ = [
     "AdaptiveFactMemoryLM",
     "AdaptiveFactMemoryOutput",
+    "MemformerDecoderLM",
+    "MemformerOutput",
+    "MemformerState",
     "ConversationState",
     "FactMemoryConfig",
     "FactMemoryState",

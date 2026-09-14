@@ -148,6 +148,42 @@ class AdaptiveFactMemoryTests(unittest.TestCase):
                 state = output.state
         torch.testing.assert_close(torch.cat(chunks, dim=1), whole.logits, atol=2e-5, rtol=2e-5)
 
+    def test_full_attention_chunked_matches_one_shot_and_grows_cache(self) -> None:
+        model = AdaptiveFactMemoryLM(
+            tiny_config(attention_budget=8, sink_tokens=2),
+            memory_policy="none",
+            attention_mode="full",
+        ).eval()
+        token_ids = torch.randint(1, model.config.vocab_size, (1, 20))
+        roles = torch.full_like(token_ids, int(SourceRole.USER))
+        with torch.no_grad():
+            whole = model.forward_round(token_ids, source_roles=roles)
+            state = None
+            chunks = []
+            for start, end in ((0, 3), (3, 9), (9, 20)):
+                output = model.forward_round(
+                    token_ids[:, start:end],
+                    state=state,
+                    source_roles=roles[:, start:end],
+                )
+                chunks.append(output.logits)
+                state = output.state
+        torch.testing.assert_close(
+            torch.cat(chunks, dim=1), whole.logits, atol=2e-5, rtol=2e-5
+        )
+        for cache in state.layer_caches:
+            self.assertEqual(int(cache.recent_valid.sum()), 20)
+            self.assertEqual(cache.recent_k.shape[2], 20)
+            self.assertEqual(int(cache.sink_valid.sum()), 0)
+
+    def test_full_attention_preserves_parent_projection_names(self) -> None:
+        config = tiny_config()
+        swa = AdaptiveFactMemoryLM(config, memory_policy="none", attention_mode="swa")
+        full = AdaptiveFactMemoryLM(config, memory_policy="none", attention_mode="full")
+        full.load_state_dict(swa.state_dict())
+        self.assertEqual(full.blocks[0].local_attention.to_q.weight.shape,
+                         swa.blocks[0].local_attention.to_q.weight.shape)
+
     def test_prefix_is_causal_before_memory_commit(self) -> None:
         model = AdaptiveFactMemoryLM(tiny_config()).eval()
         token_ids = torch.randint(1, model.config.vocab_size, (1, 14))

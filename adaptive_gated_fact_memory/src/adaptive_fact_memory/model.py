@@ -9,7 +9,7 @@ import torch
 from torch import Tensor, nn
 import torch.nn.functional as F
 
-from .attention import RotaryEmbedding, StreamingSinkSlidingAttention
+from .attention import FullCausalAttention, RotaryEmbedding, StreamingSinkSlidingAttention
 from .config import FactMemoryConfig, SourceRole
 from .memory import (
     AtomicFactExtractor,
@@ -141,10 +141,21 @@ class SparseMoE(nn.Module):
 
 
 class DecoderBlock(nn.Module):
-    def __init__(self, config: FactMemoryConfig, use_memory: bool):
+    def __init__(
+        self,
+        config: FactMemoryConfig,
+        use_memory: bool,
+        attention_mode: str = "swa",
+    ):
         super().__init__()
+        if attention_mode not in {"swa", "full"}:
+            raise ValueError("attention_mode must be 'swa' or 'full'")
         self.local_norm = nn.LayerNorm(config.hidden_size)
-        self.local_attention = StreamingSinkSlidingAttention(config)
+        self.local_attention = (
+            StreamingSinkSlidingAttention(config)
+            if attention_mode == "swa"
+            else FullCausalAttention(config)
+        )
         self.memory_norm = nn.LayerNorm(config.hidden_size) if use_memory else None
         self.memory_fusion = SharedMemoryFusion(config) if use_memory else None
         self.ffn_norm = nn.LayerNorm(config.hidden_size)
@@ -233,6 +244,7 @@ class AdaptiveFactMemoryLM(nn.Module):
     """
 
     VALID_MEMORY_POLICIES = ("gated", "fixed", "fixed_lru", "none")
+    VALID_ATTENTION_MODES = ("swa", "full")
 
     def __init__(
         self,
@@ -242,6 +254,7 @@ class AdaptiveFactMemoryLM(nn.Module):
         fusion_gate_override: float | None = None,
         memory_value_mode: str = "combined",
         value_token_alignment: bool = False,
+        attention_mode: str = "swa",
     ):
         super().__init__()
         if memory_policy not in self.VALID_MEMORY_POLICIES:
@@ -251,6 +264,12 @@ class AdaptiveFactMemoryLM(nn.Module):
             )
         self.config = config
         self.memory_policy = memory_policy
+        if attention_mode not in self.VALID_ATTENTION_MODES:
+            raise ValueError(
+                f"attention_mode must be one of {self.VALID_ATTENTION_MODES}, "
+                f"got {attention_mode!r}"
+            )
+        self.attention_mode = attention_mode
         self.fusion_gate_override = fusion_gate_override
         if memory_value_mode not in {
             "combined",
@@ -268,7 +287,11 @@ class AdaptiveFactMemoryLM(nn.Module):
         self.rotary = RotaryEmbedding(config.head_dim, config.rope_max_position)
         fusion_layers = set(config.memory_fusion_layers)
         self.blocks = nn.ModuleList(
-            DecoderBlock(config, layer_index in fusion_layers)
+            DecoderBlock(
+                config,
+                layer_index in fusion_layers,
+                attention_mode=attention_mode,
+            )
             for layer_index in range(config.layers)
         )
         self.final_norm = nn.LayerNorm(config.hidden_size)

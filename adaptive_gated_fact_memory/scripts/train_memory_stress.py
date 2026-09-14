@@ -161,6 +161,7 @@ def load_stress_model(
     *,
     training: bool,
     memory_policy: str,
+    attention_mode: str = "swa",
     memory_slots: int,
     memory_read_top_k: int,
     fusion_gate_override: float | None = None,
@@ -188,6 +189,7 @@ def load_stress_model(
     model = AdaptiveFactMemoryLM(
         config,
         memory_policy=memory_policy,
+        attention_mode=attention_mode,
         fusion_gate_override=fusion_gate_override,
         memory_value_mode=memory_value_mode,
         value_token_alignment=value_token_alignment,
@@ -425,6 +427,8 @@ def stress_training_batch_loss(
     tracked_target_slots: list[int | None] = [None for _ in examples]
     retention_terms_over_time: list[torch.Tensor] = []
     moe_round_losses: list[torch.Tensor] = []
+    answer_correct = 0
+    answer_tokens = 0
     query_index = len(rounds) - 1
 
     for round_index, collated in enumerate(rounds):
@@ -443,6 +447,19 @@ def stress_training_batch_loss(
         round_outputs.append(output)
         moe_round_losses.append(output.diagnostics.get("moe_aux_loss", output.logits.sum() * 0.0))
         state = output.state
+        if is_query:
+            # Record teacher-forced answer accuracy without changing the loss
+            # graph.  The target mask marks the input position whose next
+            # token is an answer token, matching masked_loss_sum semantics.
+            answer_mask = collated.answer_target_mask
+            answer_targets = torch.roll(collated.input_ids, shifts=-1, dims=1)
+            answer_correct += int(
+                (output.logits.argmax(dim=-1)[answer_mask] == answer_targets[answer_mask])
+                .sum()
+                .detach()
+                .cpu()
+            )
+            answer_tokens += int(answer_mask.sum().detach().cpu())
         if memory_policy == "none":
             # Only the answer round has assistant targets in this protocol.
             count = collated.answer_target_mask.sum().clamp_min(1)
@@ -547,6 +564,7 @@ def stress_training_batch_loss(
                 "active_slots": 0.0,
                 "read_supervised_rows": 0.0,
                 "read_target_score": 0.0,
+                "answer_token_accuracy": answer_correct / max(answer_tokens, 1),
             }
         )
         # Apply the same MoE objective to SWA-only so memory-policy comparisons
@@ -759,6 +777,7 @@ def stress_training_batch_loss(
             "active_slots": float(active_count.detach().mean().cpu()),
             "read_supervised_rows": float(len(read_target_slots)),
             "read_target_score": statistics.fmean(target_scores) if target_scores else 0.0,
+            "answer_token_accuracy": answer_correct / max(answer_tokens, 1),
             "candidate_memory_token_accuracy": candidate_token_accuracy,
             "candidate_memory_token_exact": candidate_token_exact,
             "retrieved_memory_token_accuracy": retrieved_token_accuracy,
@@ -1211,6 +1230,7 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
         device,
         training=True,
         memory_policy=args.memory_policy,
+        attention_mode=args.attention_mode,
         memory_slots=args.memory_slots,
         memory_read_top_k=args.memory_read_top_k,
         fusion_gate_override=args.fusion_gate_override,
@@ -1240,6 +1260,7 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
         "run_id": args.run_id,
         "seed": args.seed,
         "memory_policy": args.memory_policy,
+        "attention_mode": args.attention_mode,
         "parent_checkpoint": str(BACKBONE_CHECKPOINT),
         "parent_checkpoint_sha256": sha256_file(BACKBONE_CHECKPOINT),
         "architecture": {
@@ -1251,7 +1272,12 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
             "memory_read_top_k": model.config.memory_read_top_k,
             "max_write_candidates": model.config.max_write_candidates,
             "merge_threshold": model.config.merge_threshold,
-            "local_kv": "4 sinks + 124 recent",
+            "attention_mode": args.attention_mode,
+            "local_kv": (
+                "4 sinks + 124 recent"
+                if args.attention_mode == "swa"
+                else "unbounded full causal KV"
+            ),
             "value_token_alignment": args.value_token_alignment,
             "value_memory_fusion": args.memory_value_mode,
             "memory_token_decoder": (
@@ -1410,6 +1436,7 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
             device,
             training=False,
             memory_policy=args.memory_policy,
+            attention_mode=args.attention_mode,
             memory_slots=args.memory_slots,
             memory_read_top_k=args.memory_read_top_k,
             fusion_gate_override=args.fusion_gate_override,
@@ -1441,6 +1468,7 @@ def run_training(args: argparse.Namespace, device: torch.device) -> dict[str, An
         "run_id": args.run_id,
         "seed": args.seed,
         "memory_policy": args.memory_policy,
+        "attention_mode": args.attention_mode,
         "status": status,
         "failure": failure,
         "steps_completed": len(step_records),
@@ -1471,6 +1499,12 @@ def parse_args() -> argparse.Namespace:
         "--memory-policy",
         choices=AdaptiveFactMemoryLM.VALID_MEMORY_POLICIES,
         default="gated",
+    )
+    parser.add_argument(
+        "--attention-mode",
+        choices=AdaptiveFactMemoryLM.VALID_ATTENTION_MODES,
+        default="swa",
+        help="Use bounded sink-SWA or exact unbounded causal attention.",
     )
     parser.add_argument("--memory-slots", type=int, default=8)
     parser.add_argument("--memory-read-top-k", type=int, default=4)

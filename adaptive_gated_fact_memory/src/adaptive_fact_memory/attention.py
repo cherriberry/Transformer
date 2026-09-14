@@ -242,3 +242,127 @@ class StreamingSinkSlidingAttention(nn.Module):
             "cache_entries": (sink_valid.sum(dim=-1) + recent_valid.sum(dim=-1)).detach(),
         }
         return output, new_cache, diagnostics
+
+
+class FullCausalAttention(nn.Module):
+    """Exact causal attention with an unbounded per-conversation KV cache.
+
+    The projection names intentionally match ``StreamingSinkSlidingAttention``
+    so a SWA-trained parent can be loaded for task-specific Full-Attention
+    controls.  ``LocalKVCache.recent_*`` is reused as a dynamically growing
+    chronological cache; sink tensors remain unused in this mode.
+    """
+
+    def __init__(self, config: FactMemoryConfig):
+        super().__init__()
+        self.config = config
+        self.heads = config.heads
+        self.head_dim = config.head_dim
+        self.scale = config.head_dim**-0.5
+        self.to_q = nn.Linear(config.hidden_size, config.hidden_size, bias=False)
+        self.to_k = nn.Linear(config.hidden_size, config.hidden_size, bias=False)
+        self.to_v = nn.Linear(config.hidden_size, config.hidden_size, bias=False)
+        self.to_out = nn.Linear(config.hidden_size, config.hidden_size, bias=False)
+        self.dropout = nn.Dropout(config.dropout)
+
+    def _heads(self, value: Tensor) -> Tensor:
+        batch, tokens, _ = value.shape
+        return value.view(batch, tokens, self.heads, self.head_dim).transpose(1, 2)
+
+    @staticmethod
+    def _pack_cache(
+        key: Tensor,
+        value: Tensor,
+        positions: Tensor,
+        valid: Tensor,
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        """Pack valid chronological entries into a rectangular batch cache."""
+
+        batch, heads, _, head_dim = key.shape
+        lengths = valid.sum(dim=1)
+        max_length = int(lengths.max().item()) if lengths.numel() else 0
+        packed_k = torch.zeros(
+            batch, heads, max_length, head_dim, device=key.device, dtype=key.dtype
+        )
+        packed_v = torch.zeros_like(packed_k)
+        packed_positions = torch.full(
+            (batch, max_length), -1, device=positions.device, dtype=positions.dtype
+        )
+        packed_valid = torch.zeros(
+            batch, max_length, device=valid.device, dtype=torch.bool
+        )
+        for batch_index in range(batch):
+            selected = torch.nonzero(valid[batch_index], as_tuple=False).flatten()
+            count = int(selected.numel())
+            if not count:
+                continue
+            destination = slice(max_length - count, max_length)
+            packed_k[batch_index, :, destination] = key[batch_index, :, selected]
+            packed_v[batch_index, :, destination] = value[batch_index, :, selected]
+            packed_positions[batch_index, destination] = positions[batch_index, selected]
+            packed_valid[batch_index, destination] = True
+        return packed_k, packed_v, packed_positions, packed_valid
+
+    def forward_chunk(
+        self,
+        hidden: Tensor,
+        cache: LocalKVCache,
+        rotary: RotaryEmbedding,
+        position_ids: Tensor,
+        token_mask: Tensor,
+    ) -> tuple[Tensor, LocalKVCache, dict[str, Tensor]]:
+        if hidden.ndim != 3:
+            raise ValueError("hidden must have shape [batch, tokens, hidden]")
+        batch, tokens, width = hidden.shape
+        if width != self.config.hidden_size:
+            raise ValueError("hidden size does not match configuration")
+        if position_ids.shape != (batch, tokens) or token_mask.shape != (batch, tokens):
+            raise ValueError("position_ids/token_mask shape mismatch")
+
+        query = self._heads(self.to_q(hidden))
+        key = self._heads(self.to_k(hidden))
+        value = self._heads(self.to_v(hidden))
+        query, key = rotary.apply(query, key, position_ids)
+
+        # ``recent_*`` contains the complete prior history in this mode.  The
+        # initial fixed-size tensors are all invalid and are removed below.
+        all_k = torch.cat((cache.recent_k, key), dim=2)
+        all_v = torch.cat((cache.recent_v, value), dim=2)
+        all_positions = torch.cat((cache.recent_positions, position_ids), dim=1)
+        all_valid = torch.cat((cache.recent_valid, token_mask), dim=1)
+
+        key_positions = all_positions[:, None, None, :]
+        query_positions = position_ids[:, None, :, None]
+        score_mask = all_valid[:, None, None, :] & (key_positions <= query_positions)
+        score_mask = score_mask & token_mask[:, None, :, None]
+        scores = torch.einsum("bhtd,bhsd->bhts", query, all_k) * self.scale
+        scores = scores.masked_fill(~score_mask, torch.finfo(scores.dtype).min)
+        probabilities = torch.softmax(scores.float(), dim=-1).to(query.dtype)
+        probabilities = self.dropout(probabilities) * token_mask[:, None, :, None]
+        attended = torch.einsum("bhts,bhsd->bhtd", probabilities, all_v)
+        attended = attended.transpose(1, 2).reshape(batch, tokens, width)
+        output = self.to_out(attended) * token_mask.unsqueeze(-1)
+
+        recent_k, recent_v, recent_positions, recent_valid = self._pack_cache(
+            all_k, all_v, all_positions, all_valid
+        )
+        # Full attention has no special sink path.  Keep the fields present for
+        # state compatibility, but mark them unused.
+        sink_k = torch.zeros_like(cache.sink_k)
+        sink_v = torch.zeros_like(cache.sink_v)
+        sink_valid = torch.zeros_like(cache.sink_valid)
+        new_cache = LocalKVCache(
+            sink_k=sink_k,
+            sink_v=sink_v,
+            sink_valid=sink_valid,
+            recent_k=recent_k,
+            recent_v=recent_v,
+            recent_positions=recent_positions,
+            recent_valid=recent_valid,
+        )
+        diagnostics = {
+            "sink_probability_mean": torch.zeros((), device=hidden.device, dtype=hidden.dtype),
+            "visible_keys_max": score_mask.sum(dim=-1).max().detach(),
+            "cache_entries": recent_valid.sum(dim=-1).detach(),
+        }
+        return output, new_cache, diagnostics

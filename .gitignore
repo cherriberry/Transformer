@@ -21,4 +21,5 @@ PLANS/
 # Generated experiment runs and model checkpoints
 experiments/**/runs/
 experiments/**/*.pt
+.failed_run_archive/
 

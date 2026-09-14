@@ -214,6 +214,7 @@ def evaluate(
     consumed = 0
     block_cursor = 0
     total_loss = 0.0
+    total_correct = 0
     started = time.perf_counter()
     while consumed < prediction_limit:
         remaining = prediction_limit - consumed
@@ -226,6 +227,8 @@ def evaluate(
         with autocast_context(device):
             logits = model.forward_tinystories(inputs)
         total_loss += float(masked_loss_sum(logits, targets, valid).detach().cpu())
+        predictions = logits.argmax(dim=-1)
+        total_correct += int(((predictions == targets) & valid).sum().detach().cpu())
         consumed += valid_predictions
     elapsed = time.perf_counter() - started
     nll = total_loss / max(consumed, 1)
@@ -234,6 +237,7 @@ def evaluate(
         "tokens": consumed,
         "token_weighted_nll": nll,
         "perplexity": math.exp(min(nll, 20.0)),
+        "token_accuracy": total_correct / max(consumed, 1),
         "elapsed_seconds": elapsed,
         "tokens_per_second": consumed / max(elapsed, 1e-9),
     }
@@ -268,6 +272,7 @@ class TrainRequest:
     checkpoint_interval_tokens: int
     full_validation: bool
     save_checkpoint: bool
+    attention_mode: str
 
 
 def save_checkpoint(
@@ -324,7 +329,11 @@ def run_training(request: TrainRequest, device: torch.device) -> dict[str, Any]:
 
     seed_all(request.seed)
     config = FactMemoryConfig()
-    model = AdaptiveFactMemoryLM(config).to(device)
+    model = AdaptiveFactMemoryLM(
+        config,
+        memory_policy="none",
+        attention_mode=request.attention_mode,
+    ).to(device)
     parameters = parameter_record(model)
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -656,6 +665,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint-interval-tokens", type=int, default=5_000_000)
     parser.add_argument("--full-validation", action="store_true")
     parser.add_argument("--no-checkpoint", action="store_true")
+    parser.add_argument(
+        "--attention-mode",
+        choices=("swa", "full"),
+        default="swa",
+        help="Backbone attention used during TinyStories pretraining.",
+    )
     return parser.parse_args()
 
 
@@ -676,6 +691,7 @@ def main() -> None:
         checkpoint_interval_tokens=args.checkpoint_interval_tokens,
         full_validation=args.full_validation,
         save_checkpoint=not args.no_checkpoint,
+        attention_mode=args.attention_mode,
     )
     summary = run_training(request, device)
     print(json.dumps(summary, indent=2, ensure_ascii=False, default=str))

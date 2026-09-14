@@ -59,6 +59,8 @@
 
 | 文档 | 内容 |
 |---|---|
+| [HANDOFF_ADAPTIVE_GATED_FACT_MEMORY_20260913.md](HANDOFF_ADAPTIVE_GATED_FACT_MEMORY_20260913.md) | 当前 adaptive gated fact memory、Dense/MoE 实验和后续优化交接 | 当前推荐 |
+| [PLAN_SWA_COLOR_CORRECTION_20260913.md](PLAN_SWA_COLOR_CORRECTION_20260913.md) | SWA 随机颜色基线纠正、Full-Attention 对照与 checkpoint 复用计划 | 当前执行计划 |
 | [HANDOFF_ROLES_A_C.md](HANDOFF_ROLES_A_C.md) | A/C 角色执行交接 |
 | [HANDOFF.md](HANDOFF.md) | 历史微基准交接 |
 | [KEYFORMER_HANDOFF.md](KEYFORMER_HANDOFF.md) | GPT-2 Medium Keyformer 阶段交接 |
